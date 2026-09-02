@@ -57,11 +57,15 @@ async def get_session_details(request: Request, session_id: str) -> Dict[str, An
 
     events = await supabase_service.get_events(session_id)
     triage_records = await supabase_service.get_triage_records(session_id)
+    transcripts = await supabase_service.get_transcripts(session_id)
+    recordings = await supabase_service.get_recordings(session_id)
 
     return {
         "session": session.model_dump(),
         "events": events,
         "triage_history": triage_records,
+        "transcripts": transcripts,
+        "recordings": recordings,
     }
 
 
