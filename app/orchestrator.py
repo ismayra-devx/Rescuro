@@ -62,13 +62,13 @@ class BattleBuddyOrchestrator:
 
         return event
 
-    async def create_session(
+    def create_session_instant(
         self,
         call_sid: Optional[str] = None,
         from_number: Optional[str] = None,
         to_number: Optional[str] = None,
     ) -> CallSession:
-        """Initialize and persist a new call session."""
+        """Instantly create and register session in memory with zero I/O blocking."""
         session_id = str(uuid.uuid4())
         session = CallSession(
             session_id=session_id,
@@ -78,29 +78,43 @@ class BattleBuddyOrchestrator:
             to_number=to_number,
         )
         self._sessions[session_id] = session
+        return session
 
-        # Persist session state
+    async def persist_session_start(self, session: CallSession) -> None:
+        """Asynchronously persist session creation and emit CALL_STARTED event."""
         await self.supabase_service.persist_session(
-            session_id,
+            session.session_id,
             {
-                "call_sid": call_sid,
-                "from_number": from_number,
-                "to_number": to_number,
+                "call_sid": session.call_sid,
+                "from_number": session.from_number,
+                "to_number": session.to_number,
                 "status": session.status.value,
             },
         )
 
-        # Emit CALL_STARTED
         await self.emit_event(
-            session_id=session_id,
+            session_id=session.session_id,
             event_type=EventType.CALL_STARTED,
             payload={
-                "call_sid": call_sid,
-                "from_number": from_number,
-                "to_number": to_number,
+                "call_sid": session.call_sid,
+                "from_number": session.from_number,
+                "to_number": session.to_number,
             },
         )
 
+    async def create_session(
+        self,
+        call_sid: Optional[str] = None,
+        from_number: Optional[str] = None,
+        to_number: Optional[str] = None,
+    ) -> CallSession:
+        """Initialize and persist a new call session."""
+        session = self.create_session_instant(
+            call_sid=call_sid,
+            from_number=from_number,
+            to_number=to_number,
+        )
+        await self.persist_session_start(session)
         return session
 
     def get_session(self, session_id: str) -> Optional[CallSession]:

@@ -17,20 +17,30 @@ class TwilioService:
     def generate_stream_twiml(self, session_id: str, stream_url: Optional[str] = None) -> str:
         """Generate valid TwiML connecting the call to the media stream WebSocket."""
         media_url = stream_url or settings.websocket_stream_url
-        clean_url = escape(media_url)
-        clean_session = escape(session_id)
 
-        twiml = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            "<Response>\n"
-            "    <Connect>\n"
-            f'        <Stream url="{clean_url}">\n'
-            f'            <Parameter name="session_id" value="{clean_session}"/>\n'
-            "        </Stream>\n"
-            "    </Connect>\n"
-            "</Response>"
-        )
-        return twiml
+        try:
+            from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
+            response = VoiceResponse()
+            connect = Connect()
+            stream = Stream(url=media_url)
+            stream.parameter(name="session_id", value=session_id)
+            connect.append(stream)
+            response.append(connect)
+            return str(response)
+        except ImportError:
+            # Fallback manual XML generator if SDK not available
+            clean_url = escape(media_url)
+            clean_session = escape(session_id)
+            return (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                "    <Connect>\n"
+                f'        <Stream url="{clean_url}">\n'
+                f'            <Parameter name="session_id" value="{clean_session}" />\n'
+                "        </Stream>\n"
+                "    </Connect>\n"
+                "</Response>"
+            )
 
     def validate_signature(
         self,
