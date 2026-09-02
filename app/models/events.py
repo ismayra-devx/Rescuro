@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class EventType(str, Enum):
     """Allowed event types across the Battle Buddy pipeline."""
 
+    # Core Pipeline Events
     CALL_STARTED = "CALL_STARTED"
     AUDIO_RECEIVED = "AUDIO_RECEIVED"
     TRANSCRIPT_RECEIVED = "TRANSCRIPT_RECEIVED"
@@ -19,6 +20,23 @@ class EventType(str, Enum):
     EMERGENCY_DETECTED = "EMERGENCY_DETECTED"
     SUPERVISOR_CONNECTED = "SUPERVISOR_CONNECTED"
     CALL_ENDED = "CALL_ENDED"
+
+    # Dashboard Canonical Aliases
+    NEW_CALL = "NEW_CALL"
+    TRANSCRIPT_UPDATE = "TRANSCRIPT_UPDATE"
+    TRIAGE_UPDATE = "TRIAGE_UPDATE"
+    EMERGENCY_ALERT = "EMERGENCY_ALERT"
+    CALL_STATUS = "CALL_STATUS"
+
+
+EVENT_ALIAS_MAP: Dict[EventType, str] = {
+    EventType.CALL_STARTED: "NEW_CALL",
+    EventType.TRANSCRIPT_RECEIVED: "TRANSCRIPT_UPDATE",
+    EventType.TRIAGE_COMPLETED: "TRIAGE_UPDATE",
+    EventType.EMERGENCY_DETECTED: "EMERGENCY_ALERT",
+    EventType.SUPERVISOR_CONNECTED: "SUPERVISOR_CONNECTED",
+    EventType.CALL_ENDED: "CALL_ENDED",
+}
 
 
 class BattleBuddyEvent(BaseModel):
