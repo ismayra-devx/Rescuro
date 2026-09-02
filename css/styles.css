@@ -1,0 +1,101 @@
+/* RESCURO — AI Emergency Command Center Stylesheet */
+
+/* Smooth Scrolling Physics */
+html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ambient Light Glows */
+@keyframes glowDriftLight1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(60px, 40px) scale(1.1); }
+}
+
+@keyframes glowDriftLight2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-50px, -30px) scale(1.08); }
+}
+
+.ambient-glow-indigo {
+    position: fixed;
+    top: -150px;
+    left: -100px;
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+    animation: glowDriftLight1 18s ease-in-out infinite;
+}
+
+.ambient-glow-violet {
+    position: fixed;
+    bottom: -150px;
+    right: -100px;
+    width: 650px;
+    height: 650px;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.07) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+    animation: glowDriftLight2 22s ease-in-out infinite;
+}
+
+/* Ultra-Refined Floating Scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+::-webkit-scrollbar { 
+    width: 6px; 
+    height: 6px;
+}
+
+::-webkit-scrollbar-track { 
+    background: transparent; 
+}
+
+::-webkit-scrollbar-thumb { 
+    background-color: rgba(203, 213, 225, 0.6); 
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover { 
+    background-color: rgba(99, 102, 241, 0.65); 
+}
+
+/* Smooth Inset Scroll Container */
+.custom-smooth-scroll {
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    padding-right: 8px;
+}
+
+/* Radar Pulse Ring */
+@keyframes radarPulse {
+    0% { transform: scale(0.4); opacity: 1; }
+    100% { transform: scale(1.8); opacity: 0; }
+}
+
+.radar-pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(239, 68, 68, 0.5);
+    animation: radarPulse 2s infinite ease-out;
+}
+
+/* Card Scale Hover */
+.card-scale-hover {
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease;
+}
+
+.card-scale-hover:hover {
+    transform: translateY(-2px);
+}
