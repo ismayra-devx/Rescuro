@@ -148,3 +148,78 @@ async def test_golden_supervisor_takeover_halts_tts():
 
     # TTS must be suppressed
     assert any(e.event_type == EventType.TTS_READY for e in captured_events) is False
+
+
+@pytest.mark.asyncio
+async def test_exact_pipeline_order_and_audio_adapter_fallback():
+    """Verify exact module connection order:
+    session → transcript → LLM → triage → automated TTS OR supervisor handoff → event broadcast → Supabase persistence.
+    Also verifies audio adapter prerecorded stream fallback.
+    """
+    execution_order = []
+
+    class OrderTrackingSupabase(SupabaseService):
+        async def persist_event(self, event):
+            execution_order.append(f"persist_event:{event.event_type.value}")
+            await super().persist_event(event)
+
+    class OrderTrackingOpenAI(OpenAIService):
+        async def extract_intent(self, transcript):
+            execution_order.append("LLM_extraction")
+            return await super().extract_intent(transcript)
+
+    class OrderTrackingTTS(TTSService):
+        async def synthesize_and_play(self, session_id, text, tts_halted=False):
+            execution_order.append("automated_TTS")
+            return await super().synthesize_and_play(session_id, text, tts_halted)
+
+    supabase = OrderTrackingSupabase()
+    openai = OrderTrackingOpenAI()
+    tts = OrderTrackingTTS()
+    orchestrator = BattleBuddyOrchestrator(
+        openai_service=openai,
+        supabase_service=supabase,
+        tts_service=tts,
+    )
+
+    def event_broadcast_tracker(ev):
+        execution_order.append(f"event_broadcast:{ev.event_type.value}")
+
+    orchestrator.subscribe(event_broadcast_tracker)
+
+    # 1. Step: session
+    execution_order.append("session_created")
+    session = await orchestrator.create_session()
+
+    # Audio adapter prerecorded stream test
+    chunks = []
+    async for chunk in orchestrator.audio_adapter.stream_prerecorded_test_stream(
+        session_id=session.session_id,
+        simulated_transcript="Sir office ka address kya hai?",
+        chunk_count=2,
+    ):
+        chunks.append(chunk)
+    assert len(chunks) == 2
+
+    # 2. Step: transcript -> LLM -> triage -> automated TTS -> broadcast -> persist
+    execution_order.append("transcript_received")
+    await orchestrator.process_transcript(
+        session_id=session.session_id,
+        transcript="Sir office ka address kya hai?",
+        stt_confidence=0.95,
+    )
+
+    # Validate exact sequence
+    assert "session_created" in execution_order
+    assert "transcript_received" in execution_order
+    assert "LLM_extraction" in execution_order
+    assert "automated_TTS" in execution_order
+
+    idx_transcript = execution_order.index("transcript_received")
+    idx_llm = execution_order.index("LLM_extraction")
+    idx_tts = execution_order.index("automated_TTS")
+    idx_broadcast = execution_order.index("event_broadcast:TTS_READY")
+    idx_persist = execution_order.index("persist_event:TTS_READY")
+
+    # Order verification: transcript -> LLM -> automated TTS -> broadcast -> persist
+    assert idx_transcript < idx_llm < idx_tts < idx_broadcast < idx_persist

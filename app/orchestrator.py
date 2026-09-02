@@ -22,10 +22,18 @@ class BattleBuddyOrchestrator:
         openai_service: Optional[OpenAIService] = None,
         supabase_service: Optional[SupabaseService] = None,
         tts_service: Optional[TTSService] = None,
+        audio_adapter: Optional[Any] = None,
     ):
         self.openai_service = openai_service or OpenAIService()
         self.supabase_service = supabase_service or SupabaseService()
         self.tts_service = tts_service or TTSService()
+        
+        # Audio transport adapter with fallback test stream
+        if audio_adapter is not None:
+            self.audio_adapter = audio_adapter
+        else:
+            from app.services.audio_adapter import AudioAdapter
+            self.audio_adapter = AudioAdapter()
 
         self._sessions: Dict[str, CallSession] = {}
         self._event_subscribers: List[Callable[[BattleBuddyEvent], Any]] = []
@@ -40,7 +48,10 @@ class BattleBuddyOrchestrator:
         event_type: EventType,
         payload: Dict[str, Any],
     ) -> BattleBuddyEvent:
-        """Create, persist, and broadcast an event adhering to the Critical Event Contract."""
+        """Create, broadcast, and persist an event adhering to the Critical Event Contract.
+        
+        Order: Event generation -> Event broadcast -> Supabase persistence.
+        """
         event = BattleBuddyEvent(
             event_id=str(uuid.uuid4()),
             session_id=session_id,
@@ -48,10 +59,7 @@ class BattleBuddyOrchestrator:
             payload=payload,
         )
 
-        # 1. Persist to Supabase
-        await self.supabase_service.persist_event(event)
-
-        # 2. Broadcast to subscribers (WebSockets, monitors)
+        # 1. Event Broadcast to subscribers (WebSockets, monitors)
         for subscriber in self._event_subscribers:
             try:
                 res = subscriber(event)
@@ -59,6 +67,9 @@ class BattleBuddyOrchestrator:
                     await res
             except Exception as exc:
                 logger.error(f"Event subscriber error: {exc}")
+
+        # 2. Supabase Persistence
+        await self.supabase_service.persist_event(event)
 
         return event
 
