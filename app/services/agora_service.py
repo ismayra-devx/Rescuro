@@ -166,6 +166,49 @@ class AgoraAudioAdapter(BaseAudioAdapter):
         """Check if an Agora session is currently active."""
         return session_id in self._active_sessions
 
+    async def bridge_supervisor(self, session_id: str, supervisor_id: Optional[str] = None) -> Dict[str, Any]:
+        """Attempt to join supervisor to the Agora RTC voice channel for this session.
+        
+        CRITICAL: Never fakes a successful takeover if the Agora media bridge
+        is not genuinely active. Exposes the real connection state.
+        """
+        if not self.is_active(session_id):
+            return {
+                "connected": False,
+                "status": "channel_not_active",
+                "error": f"Agora RTC media bridge for session '{session_id}' is not active",
+                "channel_name": None,
+                "token": None,
+            }
+
+        ch_info = self.get_channel_info(session_id) or {}
+        ch_name = ch_info.get("channel_name")
+
+        try:
+            sup_uid = 9999
+            supervisor_token = _generate_agora_rtc_token(
+                app_id=self.app_id,  # type: ignore
+                app_certificate=self.app_certificate,  # type: ignore
+                channel_name=ch_name,
+                uid=sup_uid,
+            )
+            return {
+                "connected": True,
+                "status": "agora_bridge_connected",
+                "channel_name": ch_name,
+                "supervisor_uid": sup_uid,
+                "token": supervisor_token,
+                "caller_uid": ch_info.get("uid"),
+            }
+        except Exception as exc:
+            logger.error(f"Agora supervisor media bridge error: {exc}")
+            return {
+                "connected": False,
+                "status": "bridge_error",
+                "error": str(exc),
+                "channel_name": ch_name,
+            }
+
     def get_channel_info(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve active Agora channel metadata for inspection."""
         return self._active_sessions.get(session_id)

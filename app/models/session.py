@@ -30,3 +30,4 @@ class CallSession(BaseModel):
     latest_triage: Optional[Dict[str, Any]] = None
     tts_halted: bool = False
     supervisor_takeover_reason: Optional[str] = None
+    media_bridge: Optional[Dict[str, Any]] = None

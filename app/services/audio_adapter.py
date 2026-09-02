@@ -42,6 +42,14 @@ class BaseAudioAdapter(abc.ABC):
         """Check if audio streaming session is currently active."""
         pass
 
+    @abc.abstractmethod
+    async def bridge_supervisor(self, session_id: str, supervisor_id: Optional[str] = None) -> Dict[str, Any]:
+        """Attempt media bridge connection for supervisor takeover.
+        
+        Must return real connection state without faking success.
+        """
+        pass
+
 
 class MockAudioAdapter(BaseAudioAdapter):
     """Clearly named mock adapter simulating audio streaming for testing.
@@ -84,6 +92,23 @@ class MockAudioAdapter(BaseAudioAdapter):
     def is_active(self, session_id: str) -> bool:
         """Check if session is currently active."""
         return self._active_sessions.get(session_id, False)
+
+    async def bridge_supervisor(self, session_id: str, supervisor_id: Optional[str] = None) -> Dict[str, Any]:
+        """Attempt mock media bridge connection for supervisor takeover.
+        
+        Returns real connection state: disconnected if session is inactive.
+        """
+        if not self.is_active(session_id):
+            return {
+                "connected": False,
+                "status": "session_inactive",
+                "error": f"Audio session '{session_id}' is not active",
+            }
+        return {
+            "connected": True,
+            "status": "mock_connected",
+            "details": f"Mock media bridge connected for supervisor to session '{session_id}'",
+        }
 
     def get_sent_chunks(self, session_id: str) -> List[bytes]:
         """Inspect sent audio chunks for verification."""

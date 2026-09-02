@@ -235,10 +235,14 @@ class BattleBuddyOrchestrator:
         session_id: str,
         reason: Optional[str] = "Manual supervisor takeover",
     ) -> CallSession:
-        """Handle supervisor takeover: update session state, halt automated TTS, broadcast event."""
+        """Handle supervisor takeover: update session state, halt automated TTS, check media bridge, broadcast event."""
         session = self.get_session(session_id)
         if not session:
             raise KeyError(f"Session '{session_id}' not found.")
+
+        # Real media bridge state from audio adapter (Agora or mock) - never fake connection
+        media_bridge = await self.audio_adapter.bridge_supervisor(session_id)
+        session.media_bridge = media_bridge
 
         session.status = SessionStatus.SUPERVISOR_CONNECTED
         session.tts_halted = True
@@ -250,6 +254,7 @@ class BattleBuddyOrchestrator:
                 "status": session.status.value,
                 "tts_halted": True,
                 "supervisor_takeover_reason": reason,
+                "media_bridge": media_bridge,
             },
         )
 
@@ -260,6 +265,8 @@ class BattleBuddyOrchestrator:
                 "reason": reason,
                 "status": session.status.value,
                 "tts_halted": True,
+                "media_bridge_connected": media_bridge.get("connected", False),
+                "media_bridge": media_bridge,
             },
         )
 

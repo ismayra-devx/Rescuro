@@ -24,24 +24,36 @@ class ProcessTranscriptRequest(BaseModel):
 
 @router.post("/supervisor/override")
 async def supervisor_override(request: Request, body: SupervisorOverrideRequest) -> Dict[str, Any]:
-    """Take over an active call: changes state to supervisor_connected, halts TTS, broadcasts event."""
+    """Take over an active call: validates session_id, changes state to supervisor_connected,
+    halts automated TTS, broadcasts SUPERVISOR_CONNECTED, and returns genuine media bridge connection state.
+    """
     orchestrator = request.app.state.orchestrator
 
-    session = orchestrator.get_session(body.session_id)
+    # 1. Validate session_id
+    if not body.session_id or not body.session_id.strip():
+        raise HTTPException(status_code=422, detail="Valid session_id is required.")
+
+    session = orchestrator.get_session(body.session_id.strip())
     if not session:
         raise HTTPException(status_code=404, detail=f"Session '{body.session_id}' not found.")
 
+    # 2. Execute takeover & media bridge check
     updated_session = await orchestrator.supervisor_override(
-        session_id=body.session_id,
+        session_id=body.session_id.strip(),
         reason=body.reason,
     )
 
+    media_bridge = updated_session.media_bridge or {}
+
+    # 3. Expose real connection state without faking audio bridge success
     return {
         "status": "success",
         "session_id": updated_session.session_id,
         "session_status": updated_session.status.value,
         "tts_halted": updated_session.tts_halted,
         "reason": updated_session.supervisor_takeover_reason,
+        "media_bridge_connected": media_bridge.get("connected", False),
+        "media_bridge": media_bridge,
     }
 
 
