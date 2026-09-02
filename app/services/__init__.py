@@ -1,6 +1,18 @@
-"""Services package exposing vendor integrations."""
+"""Services package exposing vendor integrations and core audio interfaces."""
 
-from app.services.audio_adapter import AudioAdapter
+from app.services.agora_service import (
+    AgoraAudioAdapter,
+    AgoraConfigurationError,
+    AgoraError,
+    AgoraSDKError,
+)
+from app.services.audio_adapter import (
+    AudioAdapter,
+    BaseAudioAdapter,
+    MockAudioAdapter,
+    RecordedAudioAdapter,
+    get_audio_adapter,
+)
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.triage_service import (
@@ -13,7 +25,15 @@ from app.services.tts_service import TTSService
 from app.services.twilio_service import TwilioService
 
 __all__ = [
+    "BaseAudioAdapter",
     "AudioAdapter",
+    "MockAudioAdapter",
+    "RecordedAudioAdapter",
+    "AgoraAudioAdapter",
+    "AgoraError",
+    "AgoraConfigurationError",
+    "AgoraSDKError",
+    "get_audio_adapter",
     "OpenAIService",
     "SupabaseService",
     "TTSService",

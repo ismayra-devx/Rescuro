@@ -6,6 +6,7 @@ import uuid
 
 from app.models.events import BattleBuddyEvent, EventType
 from app.models.session import CallSession, SessionStatus
+from app.services.audio_adapter import BaseAudioAdapter, get_audio_adapter
 from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.triage_service import deterministic_triage
@@ -22,18 +23,17 @@ class BattleBuddyOrchestrator:
         openai_service: Optional[OpenAIService] = None,
         supabase_service: Optional[SupabaseService] = None,
         tts_service: Optional[TTSService] = None,
-        audio_adapter: Optional[Any] = None,
+        audio_adapter: Optional[BaseAudioAdapter] = None,
     ):
         self.openai_service = openai_service or OpenAIService()
         self.supabase_service = supabase_service or SupabaseService()
         self.tts_service = tts_service or TTSService()
         
-        # Audio transport adapter with fallback test stream
+        # Clean audio transport adapter decoupled from Agora SDK details
         if audio_adapter is not None:
             self.audio_adapter = audio_adapter
         else:
-            from app.services.audio_adapter import AudioAdapter
-            self.audio_adapter = AudioAdapter()
+            self.audio_adapter = get_audio_adapter()
 
         self._sessions: Dict[str, CallSession] = {}
         self._event_subscribers: List[Callable[[BattleBuddyEvent], Any]] = []
