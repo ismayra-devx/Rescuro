@@ -96,19 +96,19 @@ class OpenAIService:
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.OPENAI_API_KEY
-        self._client = None
+        self._async_client = None
 
         if self.api_key:
             try:
-                from openai import OpenAI
-                self._client = OpenAI(api_key=self.api_key)
+                from openai import AsyncOpenAI
+                self._async_client = AsyncOpenAI(api_key=self.api_key)
             except ImportError:
                 logger.warning("openai SDK not installed; falling back to mock adapter.")
             except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI client: {e}")
+                logger.warning(f"Failed to initialize AsyncOpenAI client: {e}")
 
     async def extract_intent(self, transcript: str) -> LLMExtractionResult:
-        """Extract structured incident data from transcript using OpenAI or deterministic fallback adapter."""
+        """Extract structured incident data from transcript using OpenAI Structured Outputs or fallback adapter."""
         if not transcript or not transcript.strip():
             return LLMExtractionResult(
                 reply="Hello, this is Battle Buddy. How can I assist you?",
@@ -121,10 +121,10 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # Use real OpenAI client if configured
-        if self._client:
+        # Use live AsyncOpenAI client if configured
+        if self._async_client:
             try:
-                response = self._client.beta.chat.completions.parse(
+                response = await self._async_client.beta.chat.completions.parse(
                     model=settings.OPENAI_MODEL,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -132,18 +132,20 @@ class OpenAIService:
                     ],
                     response_format=LLMExtractionResult,
                 )
-                return response.choices[0].message.parsed
+                parsed = response.choices[0].message.parsed
+                if parsed:
+                    return parsed
             except Exception as exc:
                 logger.error(f"OpenAI API request failed: {exc}. Falling back to adapter.")
 
-        # Offline / Fallback Mock Adapter
+        # Offline / Fallback Mock Adapter mirroring the 5 few-shot examples
         return self._mock_extract(transcript)
 
     def _mock_extract(self, transcript: str) -> LLMExtractionResult:
-        """Deterministic adapter mirroring few-shot examples for testing and offline environments."""
+        """Deterministic adapter mirroring the 5 few-shot examples for testing and offline environments."""
         t_lower = transcript.lower()
 
-        # Routine scenario
+        # 1. Few-shot Example 1: Routine
         if "address" in t_lower or "office" in t_lower:
             return LLMExtractionResult(
                 reply="Hamara office Sector 62, Noida mein sthit hai. Kya aapko directions chahiye?",
@@ -156,12 +158,38 @@ class OpenAIService:
                 route="automated",
             )
 
-        # Hinglish accident scenario
+        # 2. Few-shot Example 2: Accident
+        if "main street" in t_lower or ("accident" in t_lower and "hurt" in t_lower):
+            return LLMExtractionResult(
+                reply="Emergency units are being alerted. Where exactly on Main Street are you located?",
+                incident_type="traffic_accident",
+                location="Main Street" if "main street" in t_lower else None,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"injured_count": 2 if "two" in t_lower or "2" in t_lower else 1, "vehicles": "car"},
+                llm_confidence=0.96,
+                route="human_supervisor",
+            )
+
+        # 3. Few-shot Example 3: Ambiguous
+        if "kuch problem" in t_lower or "problem" in t_lower or "issue" in t_lower:
+            return LLMExtractionResult(
+                reply="Highway pe kya pareshani hai, kripya vistaar se batayein? Kya koi durghatna hui hai?",
+                incident_type=None,
+                location="highway" if "highway" in t_lower else None,
+                urgency="MEDIUM",
+                emergency=False,
+                extracted_slots={"area": "highway"} if "highway" in t_lower else {},
+                llm_confidence=0.65,
+                route="human_supervisor",
+            )
+
+        # 4. Few-shot Example 4: Hinglish Accident
         if "accident" in t_lower and ("injured" in t_lower or "banda" in t_lower or "highway" in t_lower):
             return LLMExtractionResult(
                 reply="Ambulance aur patrol team ko alert kar diya gaya hai. Highway pe aapka exact point kaun sa hai?",
                 incident_type="traffic_accident",
-                location="highway",
+                location="highway" if "highway" in t_lower else None,
                 urgency="HIGH",
                 emergency=True,
                 extracted_slots={"injured_count": 1, "road": "highway"},
@@ -169,29 +197,16 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # Emergency scenario (fire / bachao / life-safety)
+        # 5. Few-shot Example 5: Emergency
         if "bachao" in t_lower or "aag" in t_lower or "fire" in t_lower or "danger" in t_lower:
             return LLMExtractionResult(
-                reply="Emergency dispatch team alert ho chuki hai. Turant surakshit sthan par pahunchein.",
-                incident_type="emergency",
+                reply="Fire services ko alert bhej diya gaya hai. Kripya building se turant bahar niklein aur safe doori banayein!",
+                incident_type="fire",
                 location="building" if "building" in t_lower else None,
                 urgency="CRITICAL",
                 emergency=True,
-                extracted_slots={"emergency_type": "life_safety"},
-                llm_confidence=0.98,
-                route="human_supervisor",
-            )
-
-        # Ambiguous scenario
-        if "kuch problem" in t_lower or "problem" in t_lower or "issue" in t_lower:
-            return LLMExtractionResult(
-                reply="Kripya batayein kis prakar ki samasya hai? Kya koi emergency hai?",
-                incident_type=None,
-                location="highway" if "highway" in t_lower else None,
-                urgency="MEDIUM",
-                emergency=False,
-                extracted_slots={},
-                llm_confidence=0.65,
+                extracted_slots={"hazard": "fire"},
+                llm_confidence=0.99,
                 route="human_supervisor",
             )
 
