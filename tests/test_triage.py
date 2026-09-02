@@ -92,3 +92,35 @@ def test_normalize_text_and_keyword_variations():
     keywords = find_high_risk_keywords(normalized)
     assert "fire" in keywords
     assert "help" in keywords
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "emergency",
+        "accident",
+        "help",
+        "bachao",
+        "khatra",
+        "fire",
+        "bleeding",
+        "injured",
+        "hurt",
+        "danger",
+        "attack",
+        "crash",
+    ],
+)
+def test_all_12_high_risk_keywords_trigger_human_supervisor(keyword):
+    """Verify that every single high-risk keyword forces human_supervisor even with 1.0 confidence."""
+    text = f"Caller says there is a {keyword} right now."
+    result = deterministic_triage(
+        stt_confidence=1.0,
+        llm_confidence=1.0,
+        emergency=False,
+        transcript=text,
+    )
+    assert result.route == "human_supervisor"
+    assert result.priority == "HIGH"
+    assert keyword in result.matched_keywords
+    assert f"High-risk keyword(s) detected: {keyword}" in result.reason
