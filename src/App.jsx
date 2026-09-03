@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ExpansionModal } from './components/ExpansionModal';
-import { Toast } from './components/Toast';
 
 // Dedicated Page Views
 import { DashboardView } from './views/DashboardView';
@@ -18,17 +17,7 @@ export const App = () => {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [activeModalKey, setActiveModalKey] = useState(null);
     const [originRect, setOriginRect] = useState(null);
-    const [toast, setToast] = useState({ visible: false, message: '', icon: 'info' });
-    const toastTimerRef = useRef(null);
-
-    // Toast Trigger
-    const showToast = useCallback((message, icon = 'info') => {
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        setToast({ visible: true, message, icon });
-        toastTimerRef.current = setTimeout(() => {
-            setToast(prev => ({ ...prev, visible: false }));
-        }, 3500);
-    }, []);
+    const showToast = useCallback(() => {}, []);
 
     // Card Click Handler with GSAP Card-to-Page Morphing Expansion
     const handleCardClick = (cardKey, e) => {
@@ -111,9 +100,6 @@ export const App = () => {
                     onToast={showToast}
                 />
             )}
-
-            {/* Global Toast Notifications */}
-            <Toast toast={toast} />
         </div>
     );
 };

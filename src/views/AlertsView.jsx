@@ -15,10 +15,10 @@ export const AlertsView = ({ onToast }) => {
 
     return (
         <div className="space-y-4">
-            {/* Top Critical Alert Bar */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-transparent border border-rose-200/90 shadow-sm flex flex-wrap items-center justify-between gap-3">
+            {/* Top Critical Alert Bar (No Subtitle Clutter) */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-transparent border border-rose-200/90 shadow-[0_12px_40px_rgb(0,0,0,0.06)] flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shadow-md animate-pulse">
+                    <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shadow-md">
                         <Siren className="w-4 h-4" />
                     </div>
                     <div>
@@ -28,7 +28,6 @@ export const AlertsView = ({ onToast }) => {
                                 {alerts.length} Pending
                             </span>
                         </h3>
-                        <p className="text-xs text-slate-400">Real-time notification log tracking high-risk flags and supervisor intervention requests</p>
                     </div>
                 </div>
                 <button
@@ -44,7 +43,7 @@ export const AlertsView = ({ onToast }) => {
                 {alerts.map(alert => {
                     const Icon = getIncidentIcon(alert.title);
                     return (
-                        <div key={alert.id} className="bg-white/70 backdrop-blur-xl border border-rose-200/90 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div key={alert.id} className="bg-white/65 backdrop-blur-2xl border border-rose-200/90 rounded-2xl p-4 shadow-[0_12px_40px_rgb(0,0,0,0.06)] hover:shadow-md transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                             <div className="flex items-start gap-3">
                                 <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 flex-shrink-0 mt-0.5">
                                     <Icon className="w-4 h-4" />

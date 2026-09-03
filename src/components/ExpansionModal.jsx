@@ -258,20 +258,20 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                         </div>
 
                         {/* Frequency Waveform Scrubber Visualizer */}
-                        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                            <div className="flex items-center justify-between text-xs font-mono text-slate-400">
-                                <span>Spectral Frequency Scrubber (20Hz - 24,000Hz)</span>
-                                <span className="text-emerald-400 font-bold">SNR Gain: +18.4 dB</span>
+                        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+                            <div className="flex items-center justify-between text-xs font-mono text-slate-500">
+                                <span className="font-semibold">Spectral Frequency Scrubber (20Hz - 24,000Hz)</span>
+                                <span className="text-emerald-600 font-bold">SNR Gain: +18.4 dB</span>
                             </div>
-                            <div className="h-28 flex items-end justify-between gap-1 px-2 pt-4">
+                            <div className="h-28 flex items-end justify-between gap-1 px-2 pt-4 bg-slate-50 rounded-xl border border-slate-100">
                                 {Array.from({ length: 48 }).map((_, i) => {
                                     const height = ansEnabled 
                                         ? Math.max(15, Math.sin(i * 0.4) * 45 + 50 + (i % 3) * 8)
                                         : Math.max(25, (Math.random() * 70) + 30);
                                     return (
-                                        <div key={i} className="flex-1 bg-slate-800 rounded-t-sm flex flex-col justify-end h-full">
+                                        <div key={i} className="flex-1 bg-slate-200/80 rounded-t-sm flex flex-col justify-end h-full">
                                             <div 
-                                                className={`w-full rounded-t-sm transition-all duration-300 ${ansEnabled ? 'bg-indigo-400' : 'bg-rose-400'}`}
+                                                className={`w-full rounded-t-sm transition-all duration-300 ${ansEnabled ? 'bg-indigo-600' : 'bg-rose-500'}`}
                                                 style={{ height: `${height}%` }}
                                             />
                                         </div>
@@ -313,22 +313,22 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                 return (
                     <div className="space-y-5">
                         {/* Critical GPS Triangulation Radar */}
-                        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-white">
+                        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
                             <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                                    <MapPin className="w-6 h-6 animate-bounce" />
+                                <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
+                                    <MapPin className="w-5 h-5 animate-bounce" />
                                 </div>
                                 <div>
-                                    <span className="text-[10px] font-mono uppercase tracking-wider text-rose-400 font-bold">
+                                    <span className="text-[10px] font-mono uppercase tracking-wider text-rose-600 font-bold">
                                         CELL TOWER TRIANGULATION ANCHOR
                                     </span>
-                                    <h4 className="text-sm font-extrabold text-white">Sector 18 Metro Pillar 42, Noida (UP)</h4>
-                                    <p className="text-xs font-mono text-slate-400">Coordinates: 28.5708° N, 77.3271° E • Accuracy ± 4m</p>
+                                    <h4 className="text-sm font-extrabold text-slate-900">Sector 18 Metro Pillar 42, Noida (UP)</h4>
+                                    <p className="text-xs font-mono text-slate-500">Coordinates: 28.5708° N, 77.3271° E • Accuracy ± 4m</p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => onToast && onToast('Opened Tactical Maps with live GPS anchor', 'map')}
-                                className="py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all flex items-center gap-1.5 flex-shrink-0"
+                                className="py-2 px-3.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs border border-indigo-200 transition-all flex items-center gap-1.5 flex-shrink-0"
                             >
                                 Open Map Telemetry
                             </button>

@@ -14,7 +14,8 @@ import {
     VolumeX, 
     Headphones,
     MessageSquare,
-    ShieldAlert
+    ShieldAlert,
+    Radio
 } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
 
@@ -119,7 +120,7 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                 {/* Metric Card 3: Emergency Triage Flags */}
                 <div 
                     onClick={(e) => onCardClick('emergency-dispatch', e)}
-                    className="glass-surface rounded-2xl p-6 flex flex-col justify-between cursor-pointer group"
+                    className="glass-surface-critical rounded-2xl p-6 flex flex-col justify-between cursor-pointer group"
                 >
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -201,13 +202,12 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                                     <span className="font-semibold text-slate-700 uppercase">SPEAKER_01 (Caller)</span>
                                 </div>
                                 <span className="text-indigo-600 font-bold flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
                                     Transcribing...
                                 </span>
                             </div>
                             <p className="font-medium text-slate-700 leading-relaxed italic text-xs">
                                 "Bheed ikattha ho rahi hai metro pillar 42 ke saamne, jaldi ambulance bhejo..."
-                                <span className="inline-block w-1.5 h-3.5 bg-indigo-600 ml-1 animate-pulse align-middle"></span>
                             </p>
                         </div>
                     </div>
@@ -295,7 +295,7 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                 {/* Panel 3: High-Risk Override & Emergency Dispatch Panel (Zero-Scroll Immediate Access) */}
                 <div 
                     onClick={(e) => onCardClick('risk-override', e)}
-                    className="glass-surface border-rose-200/90 rounded-2xl p-6 flex flex-col justify-between cursor-pointer group h-[450px]"
+                    className="glass-surface-critical rounded-2xl p-6 flex flex-col justify-between cursor-pointer group h-[450px]"
                 >
                     <div>
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">

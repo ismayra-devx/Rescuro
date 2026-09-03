@@ -92,7 +92,7 @@ html {
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     border: 1px solid rgba(255, 255, 255, 0.90) !important;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.04) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06) !important;
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease !important;
 }
 
@@ -100,6 +100,32 @@ html {
     transform: translateY(-2px);
     box-shadow: 0 20px 48px rgba(0, 0, 0, 0.07) !important;
     border-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Instant Action Visual Gravity (High-Risk Critical Glass Surface) */
+.glass-surface-critical {
+    background: rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border: 1px solid rgba(244, 63, 94, 0.40) !important;
+    box-shadow: 0 12px 40px rgba(244, 63, 94, 0.09), inset 0 0 0 1px rgba(255, 255, 255, 0.85) !important;
+    animation: criticalGlowPulse 4s ease-in-out infinite;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease !important;
+}
+
+.glass-surface-critical:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 48px rgba(244, 63, 94, 0.16), 0 0 0 1.5px rgba(244, 63, 94, 0.55) !important;
+    border-color: rgba(244, 63, 94, 0.65) !important;
+}
+
+@keyframes criticalGlowPulse {
+    0%, 100% {
+        box-shadow: 0 12px 40px rgba(244, 63, 94, 0.08), 0 0 0 1px rgba(244, 63, 94, 0.25);
+    }
+    50% {
+        box-shadow: 0 16px 45px rgba(244, 63, 94, 0.16), 0 0 0 2px rgba(244, 63, 94, 0.45);
+    }
 }
 
 /* Ultra-Refined Floating Scrollbar */

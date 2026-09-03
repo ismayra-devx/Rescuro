@@ -9,7 +9,8 @@ import {
     AlertTriangle,
     ArrowUpRight,
     PieChart,
-    Sparkles
+    Sparkles,
+    Activity
 } from 'lucide-react';
 
 export const AnalyticsView = ({ onToast }) => {
@@ -35,20 +36,20 @@ export const AnalyticsView = ({ onToast }) => {
         <div className="space-y-6">
             {/* Top KPI Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white/70 backdrop-blur-xl border border-white/80 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)]">
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">24h Call Volume</span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">Total Audio Ingestion</span>
                         <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
-                            <BarChart3 className="w-4 h-4" />
+                            <Activity className="w-4 h-4" />
                         </span>
                     </div>
                     <div className="text-3xl font-extrabold font-mono text-slate-900 mt-2">1,510</div>
                     <p className="text-xs font-semibold text-emerald-600 mt-2 flex items-center gap-1">
-                        <TrendingUp className="w-3.5 h-3.5" /> +14.2% <span className="text-slate-400 font-normal">vs previous cycle</span>
+                        ↑ 12.4% <span className="text-slate-400 font-normal">vs previous 24h</span>
                     </p>
                 </div>
 
-                <div className="bg-white/70 backdrop-blur-xl border border-white/80 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)]">
                     <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">AI Resolution Rate</span>
                         <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
@@ -61,10 +62,10 @@ export const AnalyticsView = ({ onToast }) => {
                     </p>
                 </div>
 
-                <div className="bg-white/70 backdrop-blur-xl border border-white/80 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)]">
                     <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">Avg Triage Speed</span>
-                        <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
+                        <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
                             <Clock className="w-4 h-4" />
                         </span>
                     </div>
@@ -74,10 +75,10 @@ export const AnalyticsView = ({ onToast }) => {
                     </p>
                 </div>
 
-                <div className="bg-white/70 backdrop-blur-xl border border-white/80 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.03)]">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)]">
                     <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">Audio Noise Reduction</span>
-                        <span className="p-1.5 rounded-lg bg-violet-50 text-violet-600">
+                        <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
                             <Zap className="w-4 h-4" />
                         </span>
                     </div>
@@ -91,7 +92,7 @@ export const AnalyticsView = ({ onToast }) => {
             {/* Main Hourly Chart & Incident Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* 24h Hourly Volume Chart (2 Cols) */}
-                <div className="lg:col-span-2 bg-white/70 backdrop-blur-2xl border border-white/90 rounded-2xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col justify-between">
+                <div className="lg:col-span-2 bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-6 shadow-[0_12px_40px_rgb(0,0,0,0.06)] flex flex-col justify-between">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                         <div>
                             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -148,7 +149,7 @@ export const AnalyticsView = ({ onToast }) => {
                 {/* Language & Resolution Breakdown (1 Col) */}
                 <div className="space-y-6">
                     {/* Language Mix */}
-                    <div className="bg-white/70 backdrop-blur-2xl border border-white/90 rounded-2xl p-6 shadow-[0_8px_30px_rgb(0,0,0,0.03)] space-y-4">
+                    <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-6 shadow-[0_12px_40px_rgb(0,0,0,0.06)] space-y-4">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
                                 <Languages className="w-4 h-4 text-indigo-600" />

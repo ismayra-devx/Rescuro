@@ -16,18 +16,17 @@ export const SettingsView = ({ onToast }) => {
 
     return (
         <div className="space-y-5 max-w-5xl">
-            {/* Header */}
-            <div className="bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+            {/* Header (No Subtitle Clutter) */}
+            <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-4 shadow-[0_12px_40px_rgb(0,0,0,0.06)] flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600"><Settings className="w-5 h-5" /></div>
+                    <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/60 shadow-2xs"><Settings className="w-5 h-5" /></div>
                     <div>
                         <h3 className="text-sm font-bold text-slate-900">System &amp; Regional Exchange Settings</h3>
-                        <p className="text-xs text-slate-400">Manage audio pipelines, Sector-18 UP node topology, and supervisor credentials</p>
                     </div>
                 </div>
                 <button
                     onClick={handleSave}
-                    className="py-1.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all"
+                    className="py-1.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all"
                 >
                     <Save className="w-3.5 h-3.5" /> Save Configuration
                 </button>
@@ -35,7 +34,7 @@ export const SettingsView = ({ onToast }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {/* 1. Regional Exchange Node Settings (Sector-18 UP) */}
-                <div className="bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl p-5 shadow-sm space-y-3.5">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)] space-y-3.5">
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 font-mono">
                             <MapPin className="w-4 h-4 text-rose-500" /> Regional Exchange Node (Sector-18 UP)
@@ -78,10 +77,10 @@ export const SettingsView = ({ onToast }) => {
                 </div>
 
                 {/* 2. System Configurations & DSP Thresholds */}
-                <div className="bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl p-5 shadow-sm space-y-3.5">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)] space-y-3.5">
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 font-mono">
-                            <Radio className="w-4 h-4 text-emerald-600" /> Pipeline Audio &amp; STT Config
+                            <Radio className="w-4 h-4 text-indigo-600" /> Pipeline Audio &amp; STT Config
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                             Opus 24kHz
@@ -128,7 +127,7 @@ export const SettingsView = ({ onToast }) => {
                 </div>
 
                 {/* 3. User Profile Controls */}
-                <div className="bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl p-5 shadow-sm space-y-3.5 md:col-span-2">
+                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-5 shadow-[0_12px_40px_rgb(0,0,0,0.06)] space-y-3.5 md:col-span-2">
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 font-mono">
                             <User className="w-4 h-4 text-indigo-600" /> Active Supervisor Profile &amp; Audit Authority
