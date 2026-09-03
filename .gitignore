@@ -1,4 +1,4 @@
-﻿# Python bytecode
+# Python bytecode
 __pycache__/
 *.py[cod]
 *.class
@@ -19,6 +19,9 @@ venv/
 .cache/
 
 # Node / Frontend build
+node_modules/
+dist/
+.vite/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
