@@ -141,7 +141,10 @@ export const DataTables = ({ onCardClick, onToast }) => {
             </div>
 
             {/* Right Col: Regional Tactical Geo-Lock & Response Units */}
-            <div className="glass-surface rounded-2xl p-6 flex flex-col justify-between">
+            <div 
+                onClick={(e) => onCardClick && onCardClick('risk-override', e)}
+                className="glass-surface rounded-2xl p-6 flex flex-col justify-between cursor-pointer group"
+            >
                 <div>
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5 font-mono">
