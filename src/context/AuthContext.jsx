@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }) => {
     const [currentRole, setCurrentRole] = useState(ROLES.SUPERVISOR);
     const [user, setUser] = useState({
         id: 'user-004',
-        name: 'Sarah Chen',
+        name: 'Ismayra Parveen',
         supervisorId: 'SUP-004',
         department: 'National Capital Region EMS',
         token: 'jwt-sup-rescuro-valid-9021',
@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }) => {
             setCurrentRole(newRole);
             setUser(prev => ({
                 ...prev,
-                name: newRole === ROLES.SUPERVISOR ? 'Sarah Chen' :
+                name: newRole === ROLES.SUPERVISOR ? 'Ismayra Parveen' :
                       newRole === ROLES.DISPATCHER ? 'Rahul Sharma' :
                       newRole === ROLES.OPERATOR ? 'Ananya Roy' : 'Guest Observer',
                 supervisorId: newRole === ROLES.SUPERVISOR ? 'SUP-004' : null

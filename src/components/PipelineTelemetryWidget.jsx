@@ -1,4 +1,5 @@
 import React from 'react';
+import { Activity } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
 
 export const PipelineTelemetryWidget = () => {
@@ -18,7 +19,7 @@ export const PipelineTelemetryWidget = () => {
         <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-4 gsap-stagger-child shadow-xs">
             <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <span>📊</span>
+                    <Activity className="w-4 h-4 text-indigo-600" />
                     <span>End-to-End Pipeline Telemetry &amp; Jitter</span>
                 </h4>
                 <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
