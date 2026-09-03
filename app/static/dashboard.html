@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EchoSphere - Live Triage & Supervision Dashboard</title>
+  
+  <!-- React 18 & Babel via CDN for zero-dependency native browser execution -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Modern Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 1.5rem;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+    }
+
+    .brand span {
+      color: var(--accent);
+    }
+
+    .connection-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+
+    .badge-connected {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-disconnected {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-connecting {
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: currentColor;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Emergency Alert Banner */
+    .emergency-banner {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(185, 28, 28, 0.35) 100%);
+      border: 1px solid var(--danger);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+    }
+
+    .emergency-icon {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 0.5rem;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.25rem;
+      flex-shrink: 0;
+    }
+
+    .emergency-content h3 {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #fca5a5;
+      margin-bottom: 0.25rem;
+    }
+
+    .emergency-content p {
+      color: #fee2e2;
+      font-size: 0.9375rem;
+    }
+
+    /* Main Grid */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .metric-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      text-align: center;
+    }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .metric-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .metric-bar {
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin-top: 0.5rem;
+      overflow: hidden;
+    }
+
+    .metric-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s ease;
+    }
+
+    /* Info Key-Value Table */
+    .info-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+    }
+
+    .info-key {
+      color: var(--text-muted);
+    }
+
+    .info-val {
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Route / Urgency Badges */
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.625rem;
+      border-radius: 0.375rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .badge-route-automated {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-route-human {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-urgency-critical {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .badge-urgency-high {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .badge-urgency-normal {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent);
+    }
+
+    /* Transcript Stream */
+    .transcript-window {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      height: 280px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .transcript-item {
+      background: rgba(255, 255, 255, 0.03);
+      border-left: 3px solid var(--accent);
+      padding: 0.625rem 0.875rem;
+      border-radius: 0 0.375rem 0.375rem 0;
+    }
+
+    .transcript-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .transcript-text {
+      font-size: 0.9375rem;
+      color: var(--text);
+    }
+
+    /* Buttons & Controls */
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      border-radius: 0.375rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn-secondary {
+      background: #374151;
+      color: #fff;
+    }
+
+    .btn-secondary:hover {
+      background: #4b5563;
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-accent:hover {
+      background: var(--accent-hover);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Keyword Tags */
+    .keywords-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+    }
+
+    .keyword-tag {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      padding: 0.15rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    /* Raw Events Feed */
+    .event-log {
+      max-height: 180px;
+      overflow-y: auto;
+      background: #000;
+      border-radius: 0.375rem;
+      padding: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: #a7f3d0;
+    }
+
+    .event-log-entry {
+      margin-bottom: 0.35rem;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function EchoSphereDashboard() {
+      // WebSocket State
+      const [connectionStatus, setConnectionStatus] = useState("CONNECTING"); // CONNECTING | CONNECTED | DISCONNECTED
+      const [recentEvents, setRecentEvents] = useState([]);
+      const wsRef = useRef(null);
+
+      // Core Live Session State
+      const [sessionId, setSessionId] = useState("No active session");
+      const [callSid, setCallSid] = useState("-");
+      const [callStatus, setCallStatus] = useState("IDLE"); // IDLE, ACTIVE, SUPERVISOR_CONNECTED, COMPLETED
+      const [ttsHalted, setTtsHalted] = useState(false);
+
+      // Triage & Confidence State
+      const [sttConfidence, setSttConfidence] = useState(0.0);
+      const [llmConfidence, setLlmConfidence] = useState(0.0);
+      const [combinedConfidence, setCombinedConfidence] = useState(0.0);
+
+      // Incident, Urgency & Route
+      const [incident, setIncident] = useState("None detected");
+      const [urgency, setUrgency] = useState("NORMAL");
+      const [route, setRoute] = useState("automated"); // automated | human_supervisor
+      const [escalationReason, setEscalationReason] = useState("");
+      const [matchedKeywords, setMatchedKeywords] = useState([]);
+
+      // Emergency Alert
+      const [emergencyAlert, setEmergencyAlert] = useState(null);
+
+      // Live Transcripts
+      const [transcripts, setTranscripts] = useState([]);
+
+      // Custom Utterance Simulation
+      const [customText, setCustomText] = useState("");
+      const [customConf, setCustomConf] = useState(0.92);
+
+      // Status message from user actions
+      const [actionStatus, setActionStatus] = useState("");
+
+      // Establish purely reactive WebSocket connection (Zero Polling)
+      useEffect(() => {
+        let reconnectTimer = null;
+
+        function connect() {
+          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          const wsUrl = `${protocol}//${window.location.host}/ws/events`;
+          
+          setConnectionStatus("CONNECTING");
+          const ws = new WebSocket(wsUrl);
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            setConnectionStatus("CONNECTED");
+            console.log("[WebSocket] Connected to EchoSphere realtime events feed");
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              handleIncomingEvent(data);
+            } catch (err) {
+              console.error("[WebSocket] Failed to parse event:", err);
+            }
+          };
+
+          ws.onerror = (err) => {
+            console.warn("[WebSocket] Error:", err);
+          };
+
+          ws.onclose = () => {
+            setConnectionStatus("DISCONNECTED");
+            console.log("[WebSocket] Disconnected. Reconnecting in 3s...");
+            reconnectTimer = setTimeout(connect, 3000);
+          };
+        }
+
+        connect();
+
+        return () => {
+          if (wsRef.current) wsRef.current.close();
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+        };
+      }, []);
+
+      // Event Handler for All Specified Events (Pure Event-Driven, No Polling)
+      function handleIncomingEvent(data) {
+        const eventType = data.event_type || data.event || data.type;
+        const payload = data.payload || {};
+        const sid = data.session_id || payload.session_id;
+
+        if (sid && sid !== sessionId) {
+          setSessionId(sid);
+        }
+
+        // Add to raw audit log
+        setRecentEvents((prev) => [
+          {
+            type: eventType,
+            sid: sid,
+            time: new Date().toLocaleTimeString(),
+            payload: JSON.stringify(payload).slice(0, 120),
+          },
+          ...prev.slice(0, 19),
+        ]);
+
+        switch (eventType) {
+          case "NEW_CALL":
+          case "CALL_STARTED":
+            setSessionId(sid || "ACTIVE_SESSION");
+            setCallSid(payload.call_sid || "LIVE_CALL");
+            setCallStatus("ACTIVE");
+            setTtsHalted(false);
+            setEmergencyAlert(null);
+            setTranscripts([]);
+            setRoute("automated");
+            setIncident("Inquiry");
+            setUrgency("NORMAL");
+            break;
+
+          case "TRANSCRIPT_UPDATE":
+          case "TRANSCRIPT_RECEIVED":
+            if (payload.transcript) {
+              const conf = payload.stt_confidence !== undefined ? payload.stt_confidence : 0.9;
+              setSttConfidence(conf);
+              setTranscripts((prev) => [
+                {
+                  text: payload.transcript,
+                  confidence: conf,
+                  time: new Date().toLocaleTimeString(),
+                },
+                ...prev,
+              ]);
+            }
+            break;
+
+          case "INTENT_EXTRACTED":
+            if (payload.llm_confidence !== undefined) {
+              setLlmConfidence(payload.llm_confidence);
+            }
+            if (payload.incident_type) setIncident(payload.incident_type);
+            if (payload.urgency) setUrgency(payload.urgency);
+            break;
+
+          case "TRIAGE_UPDATE":
+          case "TRIAGE_COMPLETED":
+            if (payload.route) setRoute(payload.route);
+            if (payload.combined_confidence !== undefined) setCombinedConfidence(payload.combined_confidence);
+            if (payload.stt_confidence !== undefined) setSttConfidence(payload.stt_confidence);
+            if (payload.llm_confidence !== undefined) setLlmConfidence(payload.llm_confidence);
+            if (payload.priority) setUrgency(payload.priority);
+            if (payload.reason) setEscalationReason(payload.reason);
+            if (payload.matched_keywords) setMatchedKeywords(payload.matched_keywords);
+
+            if (payload.route === "human_supervisor") {
+              setEmergencyAlert({
+                priority: payload.priority || "HIGH",
+                reason: payload.reason || "High risk condition detected",
+                incident: incident,
+                keywords: payload.matched_keywords || [],
+              });
+            }
+            break;
+
+          case "EMERGENCY_ALERT":
+          case "EMERGENCY_DETECTED":
+            setRoute("human_supervisor");
+            setUrgency(payload.priority || "CRITICAL");
+            if (payload.incident_type) setIncident(payload.incident_type);
+            setEscalationReason(payload.reason || "Emergency alert triggered");
+            setMatchedKeywords(payload.matched_keywords || []);
+            setEmergencyAlert({
+              priority: payload.priority || "CRITICAL",
+              reason: payload.reason || "Emergency alert triggered by caller utterance",
+              incident: payload.incident_type || incident,
+              keywords: payload.matched_keywords || [],
+            });
+            break;
+
+          case "CALL_STATUS":
+            if (payload.status) setCallStatus(payload.status);
+            if (payload.tts_halted !== undefined) setTtsHalted(payload.tts_halted);
+            break;
+
+          case "SUPERVISOR_CONNECTED":
+            setCallStatus("SUPERVISOR_CONNECTED");
+            setTtsHalted(true);
+            setRoute("human_supervisor");
+            setActionStatus("Supervisor connected. Automated TTS halted.");
+            break;
+
+          case "CALL_ENDED":
+            setCallStatus("COMPLETED");
+            setActionStatus("Call concluded.");
+            break;
+
+          default:
+            break;
+        }
+      }
+
+      // Supervisor Override: Halt automated TTS and take over
+      async function handleSupervisorTakeover() {
+        if (!sessionId || sessionId === "No active session") {
+          alert("No active session selected.");
+          return;
+        }
+        try {
+          const res = await fetch("/supervisor/override", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              reason: "Supervisor taking over call from dashboard",
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setCallStatus("SUPERVISOR_CONNECTED");
+            setTtsHalted(true);
+            setActionStatus("Supervisor Takeover Successful. Automated TTS halted.");
+          } else {
+            alert(`Error: ${data.detail || "Takeover failed"}`);
+          }
+        } catch (err) {
+          console.error(err);
+          alert("Takeover request failed: " + err.message);
+        }
+      }
+
+      // Simulation Controls (Useful for testing directly from dashboard)
+      async function simulateCall(type) {
+        setActionStatus(`Simulating ${type}...`);
+        try {
+          if (type === "NEW_CALL") {
+            const res = await fetch("/voice/incoming", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                CallSid: "CA_" + Math.floor(Math.random() * 1000000),
+                From: "+1234567890",
+                To: "+1098765432",
+              }),
+            });
+            if (res.ok) setActionStatus("New call simulated. Waiting for audio...");
+          } else if (type === "ROUTINE") {
+            const res = await fetch("/pipeline/process", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session_id: sessionId === "No active session" ? "SIM_SESSION_01" : sessionId,
+                transcript: "Sir office ka address kya hai?",
+                stt_confidence: 0.95,
+              }),
+            });
+            if (res.ok) setActionStatus("Routine inquiry processed. Route: automated.");
+          } else if (type === "EMERGENCY") {
+            const res = await fetch("/pipeline/process", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session_id: sessionId === "No active session" ? "SIM_SESSION_01" : sessionId,
+                transcript: "Sir highway pe accident hua hai jaldi bachao!",
+                stt_confidence: 0.93,
+              }),
+            });
+            if (res.ok) setActionStatus("Emergency processed! Human supervisor alert triggered.");
+          } else if (type === "CUSTOM") {
+            if (!customText.trim()) return;
+            const res = await fetch("/pipeline/process", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session_id: sessionId === "No active session" ? "SIM_SESSION_01" : sessionId,
+                transcript: customText.trim(),
+                stt_confidence: parseFloat(customConf),
+              }),
+            });
+            if (res.ok) {
+              setActionStatus(`Custom utterance processed: "${customText.trim()}"`);
+              setCustomText("");
+            }
+          }
+        } catch (err) {
+          setActionStatus("Simulation error: " + err.message);
+        }
+      }
+
+      async function handleEndCall() {
+        if (!sessionId || sessionId === "No active session") return;
+        try {
+          await fetch("/voice/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ CallSid: callSid, CallStatus: "completed", session_id: sessionId }),
+          });
+          setCallStatus("COMPLETED");
+          setActionStatus("Call ended.");
+        } catch (err) {
+          setActionStatus("End call error: " + err.message);
+        }
+      }
+
+      function handleReset() {
+        setSessionId("No active session");
+        setCallSid("-");
+        setCallStatus("IDLE");
+        setTtsHalted(false);
+        setRoute("automated");
+        setIncident("None detected");
+        setUrgency("NORMAL");
+        setEscalationReason("");
+        setMatchedKeywords([]);
+        setEmergencyAlert(null);
+        setSttConfidence(0);
+        setLlmConfidence(0);
+        setCombinedConfidence(0);
+        setTranscripts([]);
+        setActionStatus("Dashboard reset to idle.");
+      }
+
+      return (
+        <div className="container">
+          {/* Header & Connection Indicator */}
+          <header>
+            <div className="brand">
+              <div style={{ background: "var(--accent)", width: "32px", height: "32px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold" }}>ES</div>
+              <div>
+                <h1>EchoSphere <span>Realtime Triage</span></h1>
+                <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)" }}>FastAPI WebSocket Realtime Voice & Supervision Feed</p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <div className={`connection-badge ${
+                connectionStatus === "CONNECTED"
+                  ? "badge-connected"
+                  : connectionStatus === "CONNECTING"
+                  ? "badge-connecting"
+                  : "badge-disconnected"
+              }`}>
+                <span className="pulse"></span>
+                <span>WS {connectionStatus}</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Prominent Emergency Alert Banner */}
+          {emergencyAlert && (
+            <div className="emergency-banner" id="emergency-alert-banner">
+              <div className="emergency-icon">!</div>
+              <div className="emergency-content" style={{ flex: 1 }}>
+                <h3>EMERGENCY ALERT DETECTED ({emergencyAlert.priority})</h3>
+                <p><strong>Reason:</strong> {emergencyAlert.reason}</p>
+                <p><strong>Incident:</strong> {incident} | <strong>Route:</strong> Human Supervisor Escalation</p>
+                {emergencyAlert.keywords && emergencyAlert.keywords.length > 0 && (
+                  <div className="keywords-list">
+                    {emergencyAlert.keywords.map((kw, idx) => (
+                      <span key={idx} className="keyword-tag">⚠️ {kw}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button 
+                className="btn-danger" 
+                onClick={handleSupervisorTakeover}
+                style={{ padding: "0.625rem 1.25rem", fontSize: "0.9375rem" }}
+              >
+                🚨 TAKE OVER CALL NOW
+              </button>
+            </div>
+          )}
+
+          {actionStatus && (
+            <div style={{ background: "rgba(59, 130, 246, 0.15)", border: "1px solid var(--accent)", borderRadius: "0.5rem", padding: "0.625rem 1rem", marginBottom: "1.25rem", fontSize: "0.875rem" }}>
+              ℹ️ {actionStatus}
+            </div>
+          )}
+
+          {/* Main 2-Column Dashboard Grid */}
+          <div className="dashboard-grid">
+            
+            {/* Left Column: Session State & Triage Intelligence */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+              
+              {/* Session Overview Card */}
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">Session Overview</span>
+                  <span className={`badge ${
+                    callStatus === "ACTIVE" 
+                      ? "badge-urgency-normal" 
+                      : callStatus === "SUPERVISOR_CONNECTED" 
+                      ? "badge-urgency-high" 
+                      : "badge-secondary"
+                  }`}>
+                    {callStatus}
+                  </span>
+                </div>
+
+                <div className="info-list">
+                  <div className="info-row">
+                    <span className="info-key">Session ID</span>
+                    <span className="info-val" style={{ color: "var(--accent)" }}>{sessionId}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-key">Call SID</span>
+                    <span className="info-val">{callSid}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-key">Route</span>
+                    <span className={`badge ${route === "automated" ? "badge-route-automated" : "badge-route-human"}`}>
+                      {route}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-key">TTS State</span>
+                    <span className="info-val" style={{ color: ttsHalted ? "var(--danger)" : "var(--success)" }}>
+                      {ttsHalted ? "🛑 HALTED (Supervisor Active)" : "🟢 ACTIVE (Automated Voice Ready)"}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-key">Incident Classification</span>
+                    <span className="info-val" style={{ color: incident.toLowerCase().includes("accident") || incident.toLowerCase().includes("fire") ? "var(--danger)" : "var(--text)" }}>
+                      {incident}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-key">Urgency</span>
+                    <span className={`badge ${urgency === "CRITICAL" ? "badge-urgency-critical" : urgency === "HIGH" ? "badge-urgency-high" : "badge-urgency-normal"}`}>
+                      {urgency}
+                    </span>
+                  </div>
+                  {escalationReason && (
+                    <div className="info-row" style={{ alignItems: "flex-start" }}>
+                      <span className="info-key">Escalation Reason</span>
+                      <span className="info-val" style={{ textAlign: "right", maxWidth: "60%", fontSize: "0.8125rem" }}>
+                        {escalationReason}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="btn-group">
+                  <button 
+                    className="btn-danger" 
+                    onClick={handleSupervisorTakeover}
+                    disabled={callStatus === "SUPERVISOR_CONNECTED" || sessionId === "No active session"}
+                  >
+                    Take Over Call
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={handleEndCall}
+                    disabled={callStatus === "IDLE" || callStatus === "COMPLETED"}
+                  >
+                    End Call
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={handleReset}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Confidence Scores Card */}
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">Confidence Metrics</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Threshold: 0.80</span>
+                </div>
+
+                <div className="metrics-grid">
+                  <div className="metric-box">
+                    <div className="metric-label">STT Confidence</div>
+                    <div className="metric-value" style={{ color: sttConfidence > 0.8 ? "var(--success)" : "var(--warning)" }}>
+                      {(sttConfidence * 100).toFixed(1)}%
+                    </div>
+                    <div className="metric-bar">
+                      <div className="metric-bar-fill" style={{ width: `${sttConfidence * 100}%`, background: sttConfidence > 0.8 ? "var(--success)" : "var(--warning)" }}></div>
+                    </div>
+                  </div>
+
+                  <div className="metric-box">
+                    <div className="metric-label">LLM Confidence</div>
+                    <div className="metric-value" style={{ color: llmConfidence > 0.8 ? "var(--success)" : "var(--warning)" }}>
+                      {(llmConfidence * 100).toFixed(1)}%
+                    </div>
+                    <div className="metric-bar">
+                      <div className="metric-bar-fill" style={{ width: `${llmConfidence * 100}%`, background: llmConfidence > 0.8 ? "var(--success)" : "var(--warning)" }}></div>
+                    </div>
+                  </div>
+
+                  <div className="metric-box">
+                    <div className="metric-label">Combined Score</div>
+                    <div className="metric-value" style={{ color: combinedConfidence > 0.8 ? "var(--success)" : "var(--danger)" }}>
+                      {(combinedConfidence * 100).toFixed(1)}%
+                    </div>
+                    <div className="metric-bar">
+                      <div className="metric-bar-fill" style={{ width: `${combinedConfidence * 100}%`, background: combinedConfidence > 0.8 ? "var(--success)" : "var(--danger)" }}></div>
+                    </div>
+                  </div>
+                </div>
+
+                {matchedKeywords && matchedKeywords.length > 0 && (
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Matched Emergency Keywords:</span>
+                    <div className="keywords-list">
+                      {matchedKeywords.map((kw, i) => (
+                        <span key={i} className="keyword-tag">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Simulation Testing Panel */}
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">Live Pipeline Simulation</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Zero Polling Trigger</span>
+                </div>
+                <p style={{ fontSize: "0.8125rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+                  Trigger backend pipeline operations to test real-time WebSocket events:
+                </p>
+                <div className="btn-group" style={{ marginTop: 0 }}>
+                  <button className="btn-secondary" onClick={() => simulateCall("NEW_CALL")}>
+                    📞 Simulate Inbound Call
+                  </button>
+                  <button className="btn-accent" onClick={() => simulateCall("ROUTINE")}>
+                    💬 Routine Query (Office Address)
+                  </button>
+                  <button className="btn-danger" onClick={() => simulateCall("EMERGENCY")}>
+                    🚨 Emergency Query (Accident/Bachao)
+                  </button>
+                </div>
+
+                {/* Custom Utterance Testing */}
+                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <input
+                    type="range"
+                    min="0.4"
+                    max="1.0"
+                    step="0.05"
+                    value={customConf}
+                    onChange={(e) => setCustomConf(parseFloat(e.target.value))}
+                    style={{ width: "80px", accentColor: "#3b82f6" }}
+                    title={`STT Confidence: ${(customConf * 100).toFixed(0)}%`}
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Type custom speech (e.g. accident ho gaya)..." 
+                    value={customText} 
+                    onChange={(e) => setCustomText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && simulateCall("CUSTOM")}
+                    style={{ flex: 1, background: "#000", border: "1px solid var(--card-border)", borderRadius: "0.375rem", padding: "0.5rem 0.75rem", color: "#fff", fontSize: "0.8125rem" }}
+                  />
+                  <button className="btn-accent" onClick={() => simulateCall("CUSTOM")} style={{ whiteSpace: "nowrap" }}>
+                    Send
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Right Column: Live Transcripts & Audit Log */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+              
+              {/* Live Transcript Card */}
+              <div className="card" style={{ flex: 1 }}>
+                <div className="card-header">
+                  <span className="card-title">Live Transcripts Stream</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    {transcripts.length} {transcripts.length === 1 ? "entry" : "entries"}
+                  </span>
+                </div>
+
+                <div className="transcript-window">
+                  {transcripts.length === 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", fontSize: "0.875rem" }}>
+                      Waiting for caller speech... (No polling, events streamed via WebSocket)
+                    </div>
+                  ) : (
+                    transcripts.map((t, index) => (
+                      <div key={index} className="transcript-item">
+                        <div className="transcript-meta">
+                          <span>Caller Speech</span>
+                          <span>Confidence: {(t.confidence * 100).toFixed(0)}% • {t.time}</span>
+                        </div>
+                        <div className="transcript-text">"{t.text}"</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Realtime WebSocket Event Log */}
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">WebSocket Event Stream</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live Raw Feed</span>
+                </div>
+                <div className="event-log">
+                  {recentEvents.length === 0 ? (
+                    <div>[WAITING] Listening on /ws/events...</div>
+                  ) : (
+                    recentEvents.map((ev, i) => (
+                      <div key={i} className="event-log-entry">
+                        <span style={{ color: "#6ee7b7" }}>[{ev.time}]</span>{" "}
+                        <span style={{ color: "#93c5fd", fontWeight: "bold" }}>{ev.type}</span>:{" "}
+                        <span style={{ color: "#d1d5db" }}>{ev.payload}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<EchoSphereDashboard />);
+  </script>
+</body>
+</html>
