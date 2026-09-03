@@ -14,9 +14,11 @@ class WebSocketService {
         this.heartbeatTimer = null;
         this.status = 'DISCONNECTED'; // 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'FALLBACK_SIMULATOR'
         this.simulationTimer = null;
-        this.wsUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) 
-            ? import.meta.env.VITE_WS_URL 
-            : 'ws://localhost:8000/api/v1/stream/calls';
+        const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000';
+        this.wsUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL)
+            ? import.meta.env.VITE_WS_URL
+            : `${protocol}//${host}/api/v1/stream/calls`;
     }
 
     connect(url = this.wsUrl) {
@@ -139,6 +141,20 @@ class WebSocketService {
             // Echo locally in fallback mode
             console.log(`[WS Simulated Action] ${actionType}:`, message);
             this.emit('action_confirmed', { type: actionType, success: true, payload });
+        }
+
+        // Supervisor takeover → also call backend REST API directly
+        if (actionType === 'SUPERVISOR_TAKEOVER') {
+            const restHost = typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000';
+            const restProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+            fetch(`${restProtocol}//${restHost}/supervisor/override`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: payload.callId || 'C-1021',
+                    reason: payload.notes || 'Supervisor manual audio line intervention via Rescuro Console'
+                })
+            }).catch(err => console.warn('[Takeover API error]', err));
         }
     }
 

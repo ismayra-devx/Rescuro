@@ -29,22 +29,39 @@ export const LiveStreamProvider = ({ children }) => {
             if (data.jitterBuffer) setJitterBuffer(data.jitterBuffer);
         });
 
-        const unsubTranscription = wsService.on('transcription_delta', (msg) => {
+        // Bridge EchoSphere backend events → Rescuro chat panel
+        const handleTranscript = (msg) => {
+            const payload = msg.payload || msg;
+            const text = payload.transcript || payload.text || msg.text;
+            if (!text) return;
+            const isAi = msg.isAi
+                || msg.event_type === 'TTS_READY'
+                || msg.event === 'TTS_READY'
+                || (msg.author && msg.author.includes('AI'))
+                || false;
             setChatMessages(prev => [
                 ...prev,
                 {
-                    id: Date.now(),
-                    author: msg.author,
-                    text: msg.text,
-                    isAi: msg.isAi
+                    id: Date.now() + Math.random(),
+                    author: isAi ? '🤖 RESCURO AI ASSISTANT' : '👤 CALLER (Hinglish)',
+                    text: text,
+                    isAi: isAi
                 }
             ]);
-        });
+        };
+
+        const unsubTranscription = wsService.on('transcription_delta', handleTranscript);
+        const unsubTr2 = wsService.on('TRANSCRIPT_RECEIVED', handleTranscript);
+        const unsubTr3 = wsService.on('TRANSCRIPT_UPDATE', handleTranscript);
+        const unsubTr4 = wsService.on('TTS_READY', (m) => handleTranscript({ ...m, isAi: true }));
 
         return () => {
             unsubStatus();
             unsubTelemetry();
             unsubTranscription();
+            unsubTr2();
+            unsubTr3();
+            unsubTr4();
             wsService.disconnect();
         };
     }, []);
