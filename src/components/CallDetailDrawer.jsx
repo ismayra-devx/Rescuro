@@ -4,27 +4,52 @@ import {
     PhoneCall, 
     Radio, 
     Headphones, 
-    Zap, 
     Send, 
     ShieldAlert, 
+    ShieldCheck,
     MapPin, 
     Clock, 
     Activity, 
-    Bot, 
-    Sparkles, 
     CheckCircle2, 
     AlertTriangle,
-    Sliders
+    Mic,
+    Volume2,
+    Sliders,
+    FileText
 } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
-import { AgentAvatar } from './AgentAvatar';
+import { SupervisorAudioBar } from './SupervisorAudioBar';
 
-export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
-    const { takeOverCall, resolveCall, transcriptSegments } = useLiveStream();
+export const CallDetailDrawer = ({ call: initialCall, isOpen, onClose, onToast }) => {
+    const { 
+        activeCalls, 
+        takeOverCall, 
+        releaseCallToAi, 
+        resolveCall, 
+        transcriptSegments,
+        isSupervisorMicMuted,
+        isSupervisorOnHold
+    } = useLiveStream();
+
     const [whisperInput, setWhisperInput] = useState('');
     const [isListening, setIsListening] = useState(false);
     const [dispatched, setDispatched] = useState(false);
-    const [wfJitter, setWfJitter] = useState([40, 75, 30, 85, 60, 95, 50, 70, 45, 80]);
+    const [caseHandled, setCaseHandled] = useState(false);
+    const [reviewApproved, setReviewApproved] = useState(false);
+
+    // Two-Way Waveform Amplitude States
+    const [callerWf, setCallerWf] = useState([35, 60, 25, 80, 55, 90, 45, 70, 30, 85, 40, 65]);
+    const [supervisorWf, setSupervisorWf] = useState([20, 45, 30, 75, 50, 85, 40, 65, 35, 80, 25, 50]);
+
+    // Live reactive call object from activeCalls list
+    const call = activeCalls?.find(c => c.id === initialCall?.id) || initialCall;
+
+    // Reset local action states when switching between calls
+    useEffect(() => {
+        setDispatched(false);
+        setCaseHandled(false);
+        setReviewApproved(false);
+    }, [call?.id]);
 
     // Keyboard ESC listener to close drawer
     useEffect(() => {
@@ -37,19 +62,36 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose]);
 
-    // Waveform animation
+    // Two-way dynamic waveform animation
     useEffect(() => {
         if (!isOpen) return;
         const interval = setInterval(() => {
-            setWfJitter(prev => prev.map(() => Math.floor(Math.random() * 70) + 25));
-        }, 120);
+            // Caller incoming voice jitter
+            setCallerWf(prev => prev.map(() => Math.floor(Math.random() * 65) + 25));
+
+            // Supervisor outgoing voice jitter (flattens if muted or on hold)
+            if (isSupervisorMicMuted || isSupervisorOnHold) {
+                setSupervisorWf(new Array(12).fill(10));
+            } else {
+                setSupervisorWf(prev => prev.map(() => Math.floor(Math.random() * 70) + 20));
+            }
+        }, 110);
         return () => clearInterval(interval);
-    }, [isOpen]);
+    }, [isOpen, isSupervisorMicMuted, isSupervisorOnHold]);
 
     if (!isOpen || !call) return null;
 
-    const isHighRisk = call.risk === 'HIGH';
-    const isReview = call.risk === 'REVIEW';
+    // Dynamic Risk Tier calculation
+    const riskTier = (call.risk === 'HIGH' || call.urgency === 'CRITICAL' || call.urgency === 'HIGH')
+        ? 'CRITICAL'
+        : (call.risk === 'REVIEW' || call.urgency === 'MEDIUM')
+        ? 'REVIEW'
+        : 'STABLE';
+
+    const isHighRisk = riskTier === 'CRITICAL';
+    const isReview = riskTier === 'REVIEW';
+    const isStable = riskTier === 'STABLE';
+    const isOverridden = !!call.supervisorOverridden;
 
     const handleSendWhisper = (e) => {
         e.preventDefault();
@@ -59,18 +101,28 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
     };
 
     const handleTakeoverToggle = () => {
-        if (!call.supervisorOverridden) {
+        if (!isOverridden) {
             takeOverCall(call.id);
-            if (onToast) onToast(`Supervisor SUP-004 took over Line ${call.id}`, 'zap');
+            if (onToast) onToast(`Supervisor SUP-004 took over Line ${call.id} (Live Audio Linked)`, 'zap');
         } else {
-            resolveCall(call.id);
-            if (onToast) onToast(`Resolved & normalized Line ${call.id}`, 'check');
+            releaseCallToAi(call.id);
+            if (onToast) onToast(`Call control returned to Autonomous AI Voice Engine (${call.agent})`, 'check');
         }
     };
 
     const handleDispatch = () => {
         setDispatched(true);
-        if (onToast) onToast(`Dispatched PCR-14 & Amb-02 to ${call.location}`, 'siren');
+        if (onToast) onToast(`Dispatched Emergency Units (PCR-14 & Amb-02) to ${call.location}`, 'siren');
+    };
+
+    const handleReviewAction = () => {
+        setReviewApproved(true);
+        if (onToast) onToast(`Supervisor approved AI triage & escalated unit dispatch for ${call.id}`, 'check');
+    };
+
+    const handleLogAndClose = () => {
+        setCaseHandled(true);
+        if (onToast) onToast(`Case ${call.id} resolved by AI & logged to central registry`, 'check');
     };
 
     return (
@@ -82,30 +134,52 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
             />
 
             {/* Slide-Over Context Drawer */}
-            <aside className="fixed top-0 right-0 h-full w-full sm:w-[460px] z-50 flex flex-col bg-white/85 backdrop-blur-2xl border-l border-white/90 shadow-[-12px_0_40px_rgba(0,0,0,0.12)] transition-transform duration-300 ease-out overflow-hidden">
+            <aside className="fixed top-0 right-0 h-full w-full sm:w-[480px] z-50 flex flex-col bg-white/85 backdrop-blur-2xl border-l border-white/90 shadow-[-12px_0_40px_rgba(0,0,0,0.12)] transition-transform duration-300 ease-out overflow-hidden">
                 
-                {/* 1. Drawer Header Bar */}
-                <div className="p-4 border-b border-slate-100/80 bg-white/60 backdrop-blur-md flex items-center justify-between flex-shrink-0">
+                {/* 1. Drawer Header Bar (Instant Visual State Transition) */}
+                <div className={`p-4 border-b flex items-center justify-between flex-shrink-0 transition-all ${
+                    isOverridden 
+                        ? 'bg-blue-50/70 border-blue-200/80 backdrop-blur-md' 
+                        : 'bg-white/60 border-slate-100/80 backdrop-blur-md'
+                }`}>
                     <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={`p-2 rounded-xl text-white shadow-xs flex-shrink-0 ${
-                            isHighRisk ? 'bg-rose-600' : isReview ? 'bg-amber-500' : 'bg-indigo-600'
+                        <div className={`p-2 rounded-xl text-white shadow-xs flex-shrink-0 transition-all ${
+                            isOverridden 
+                                ? 'bg-blue-600 ring-2 ring-blue-400/40 shadow-blue-500/20' 
+                                : isHighRisk 
+                                ? 'bg-rose-600' 
+                                : isReview 
+                                ? 'bg-amber-500' 
+                                : 'bg-indigo-600'
                         }`}>
                             <PhoneCall className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <h3 className="font-mono font-black text-sm text-slate-900 tracking-tight">{call.id}</h3>
-                                <span className={`rounded-full px-3 py-1 text-xs font-semibold tracking-wide shadow-xs ${
-                                    call.supervisorOverridden 
-                                        ? 'bg-amber-500 text-white'
-                                        : isHighRisk 
-                                        ? 'bg-rose-600 text-white'
-                                        : isReview
-                                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                }`}>
-                                    {call.supervisorOverridden ? 'CONTROLLED' : isHighRisk ? 'CRITICAL' : isReview ? 'REVIEW' : 'STABLE'}
-                                </span>
+                                
+                                {/* Status Indicator Badge */}
+                                {isOverridden ? (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-100/90 text-blue-900 border border-blue-300 shadow-xs ring-1 ring-blue-400/20">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold uppercase tracking-tight">
+                                            Supervisor Active
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <span className={`rounded-md px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider shadow-xs ${
+                                        isHighRisk 
+                                            ? 'bg-rose-600 text-white' 
+                                            : isReview 
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                                            : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                    }`}>
+                                        {isHighRisk ? 'CRITICAL' : isReview ? 'REVIEW' : 'STABLE'}
+                                    </span>
+                                )}
                             </div>
                             <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">{call.incident}</p>
                         </div>
@@ -123,7 +197,39 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                 {/* Drawer Scrollable Body */}
                 <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-smooth-scroll">
                     
-                    {/* 2. Real-Time Telemetry Grid (4 Tiles) */}
+                    {/* 2. Embedded In-Browser Audio Control Toolbar (When Active or Expandable) */}
+                    {isOverridden ? (
+                        <SupervisorAudioBar 
+                            callId={call.id} 
+                            call={call} 
+                            onToast={onToast} 
+                            variant="drawer" 
+                        />
+                    ) : (
+                        /* Standby Audio Override Prompt Card */
+                        <div className="p-3.5 rounded-2xl bg-white/70 border border-slate-200/80 shadow-2xs flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                                    <Headphones className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-mono font-bold text-slate-900">AI Autonomous Audio Channel</span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">{call.agent} managing live voice stream</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={handleTakeoverToggle}
+                                className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center flex-shrink-0"
+                            >
+                                <span>Take Over</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* 3. Real-Time Telemetry Grid (4 Tiles) */}
                     <div className="grid grid-cols-2 gap-2.5">
                         <div className="p-3 rounded-xl bg-white/70 border border-white/80 shadow-2xs">
                             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">Round-Trip Latency</span>
@@ -137,20 +243,40 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                         </div>
                         <div className="p-3 rounded-xl bg-white/70 border border-white/80 shadow-2xs">
                             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">WER Accuracy</span>
-                            <span className="font-mono font-black text-base text-emerald-600">99.4%</span>
+                            <span className="font-mono font-black text-base text-blue-600">99.4%</span>
                             <span className="text-[10px] text-slate-500 font-mono block">Deepgram Nova-2</span>
                         </div>
-                        <div className="p-3 rounded-xl bg-white/70 border border-white/80 shadow-2xs">
-                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">Assigned Agent</span>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                                <AgentAvatar size="xs" variant="indigo" />
-                                <span className="font-mono font-black text-sm text-indigo-600 truncate">{call.agent}</span>
+
+                        {/* Telemetry Tile 4: Swaps AI Agent Avatar with Glowing Supervisor Indicator */}
+                        {isOverridden ? (
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-blue-50/90 to-sky-50/70 border border-blue-200/90 shadow-2xs ring-1 ring-blue-500/20">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-700 block">Live Voice Lead</span>
+                                    <span className="relative flex h-2 w-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-black shadow-xs">
+                                        SUP
+                                    </div>
+                                    <span className="font-mono font-black text-sm text-blue-950 truncate">SUP-004 (Supervisor)</span>
+                                </div>
+                                <span className="text-[10px] text-blue-600 font-mono font-bold block mt-0.5">Live Audio Linked</span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-mono block mt-0.5">Auto Triage Active</span>
-                        </div>
+                        ) : (
+                            <div className="p-3 rounded-xl bg-white/70 border border-white/80 shadow-2xs">
+                                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">Assigned Agent</span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="font-mono font-black text-sm text-indigo-600 truncate">{call.agent}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-mono block mt-0.5">Auto Triage Active</span>
+                            </div>
+                        )}
                     </div>
 
-                    {/* 3. Caller & Tactical Location Card */}
+                    {/* 4. Caller & Tactical Location Card */}
                     <div className="p-3.5 rounded-xl bg-white/70 border border-white/80 shadow-2xs space-y-2">
                         <div className="flex items-center justify-between text-xs pb-1.5 border-b border-slate-100/80">
                             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Caller Identification</span>
@@ -170,11 +296,12 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                         </div>
                     </div>
 
-                    {/* 4. Live Audio Frequency Stream */}
-                    <div className="p-3.5 rounded-xl bg-white/70 border border-white/80 shadow-2xs space-y-2">
+                    {/* 5. Live Two-Way Audio Waveform & Spectral Telemetry Display */}
+                    <div className="p-3.5 rounded-xl bg-white/70 border border-white/80 shadow-2xs space-y-3">
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                                <Activity className="w-3.5 h-3.5 text-indigo-500" /> Live Spectral Stream
+                                <Activity className="w-3.5 h-3.5 text-indigo-500" />
+                                {isOverridden ? 'Two-Way Full-Duplex Voice Stream' : 'Live Spectral Stream'}
                             </span>
                             <button
                                 onClick={() => {
@@ -190,30 +317,82 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                                 <Headphones className="w-3 h-3" /> {isListening ? 'Monitoring Audio' : 'Listen In'}
                             </button>
                         </div>
-                        {/* Waveform Canvas */}
-                        <div className="h-10 bg-slate-50 rounded-lg border border-slate-200/60 flex items-center justify-center gap-1.5 px-3">
-                            {wfJitter.map((h, i) => (
-                                <div
-                                    key={i}
-                                    className="w-1.5 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-full transition-all duration-100"
-                                    style={{ height: `${h}%` }}
-                                />
-                            ))}
-                        </div>
+
+                        {/* Dual Two-Way Audio Waveform Visualization */}
+                        {isOverridden ? (
+                            <div className="space-y-2.5">
+                                {/* Supervisor Tx (Uplink) Channel */}
+                                <div className="p-2 rounded-xl bg-blue-50/70 border border-blue-200/70 space-y-1">
+                                    <div className="flex items-center justify-between text-[10px] font-mono">
+                                        <span className="font-bold text-blue-900 flex items-center gap-1">
+                                            <Mic className="w-3 h-3 text-blue-600" /> Supervisor Uplink (Tx)
+                                        </span>
+                                        <span className="text-blue-700 font-semibold">
+                                            {isSupervisorMicMuted ? 'MUTED' : isSupervisorOnHold ? 'ON HOLD' : '-14 dBFS'}
+                                        </span>
+                                    </div>
+                                    <div className="h-8 bg-white/70 rounded-lg flex items-center justify-center gap-1.5 px-2">
+                                        {supervisorWf.map((h, i) => (
+                                            <div
+                                                key={i}
+                                                className={`w-1.5 rounded-full transition-all duration-100 ${
+                                                    isSupervisorMicMuted 
+                                                        ? 'bg-rose-300' 
+                                                        : isSupervisorOnHold 
+                                                        ? 'bg-amber-400' 
+                                                        : 'bg-gradient-to-t from-sky-400 via-sky-500 to-blue-600'
+                                                }`}
+                                                style={{ height: `${h}%` }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Caller Rx (Downlink) Channel */}
+                                <div className="p-2 rounded-xl bg-indigo-50/70 border border-indigo-200/70 space-y-1">
+                                    <div className="flex items-center justify-between text-[10px] font-mono">
+                                        <span className="font-bold text-indigo-800 flex items-center gap-1">
+                                            <PhoneCall className="w-3 h-3 text-indigo-600" /> Caller Inbound (Rx)
+                                        </span>
+                                        <span className="text-indigo-700 font-semibold">-19 dBFS</span>
+                                    </div>
+                                    <div className="h-8 bg-white/70 rounded-lg flex items-center justify-center gap-1.5 px-2">
+                                        {callerWf.map((h, i) => (
+                                            <div
+                                                key={i}
+                                                className="w-1.5 bg-gradient-to-t from-indigo-600 to-blue-500 rounded-full transition-all duration-100"
+                                                style={{ height: `${h}%` }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            /* Standard Single Stream Waveform */
+                            <div className="h-10 bg-slate-50 rounded-lg border border-slate-200/60 flex items-center justify-center gap-1.5 px-3">
+                                {callerWf.map((h, i) => (
+                                    <div
+                                        key={i}
+                                        className="w-1.5 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-full transition-all duration-100"
+                                        style={{ height: `${h}%` }}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
 
-                    {/* 5. Live Speech-to-Text Transcription Stream */}
+                    {/* 6. Live Speech-to-Text Transcription Stream */}
                     <div className="p-3.5 rounded-xl bg-white/70 border border-white/90 shadow-2xs space-y-2.5">
                         <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
                             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                                <Radio className="w-3.5 h-3.5 text-emerald-500" /> Real-Time Transcription
+                                <Radio className="w-3.5 h-3.5 text-blue-600" /> Real-Time Transcription
                             </span>
-                            <span className="text-[10px] font-mono text-emerald-600 font-semibold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Live Stream
+                            <span className="text-[10px] font-mono text-blue-700 font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Live Stream
                             </span>
                         </div>
 
-                        <div className="space-y-2 text-xs max-h-48 overflow-y-auto pr-1 custom-smooth-scroll">
+                        <div className="space-y-2 text-xs max-h-40 overflow-y-auto pr-1 custom-smooth-scroll">
                             {(transcriptSegments || []).slice(-4).map((item, idx) => (
                                 <div key={idx} className={`p-2 rounded-lg text-xs leading-relaxed ${
                                     item.isAi 
@@ -221,7 +400,6 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                                         : 'bg-slate-50 border border-slate-200/60 text-slate-800 mr-3'
                                 }`}>
                                     <div className="flex items-center gap-1.5 mb-1">
-                                        {item.isAi && <AgentAvatar size="xs" variant="indigo" />}
                                         <span className="text-[10px] font-mono font-bold uppercase text-slate-400">
                                             {item.author}
                                         </span>
@@ -232,7 +410,7 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                         </div>
                     </div>
 
-                    {/* 6. Whisper Guidance Input */}
+                    {/* 7. Whisper Guidance Input */}
                     <form onSubmit={handleSendWhisper} className="space-y-1.5">
                         <div className="flex items-center gap-2">
                             <input
@@ -253,32 +431,147 @@ export const CallDetailDrawer = ({ call, isOpen, onClose, onToast }) => {
                     </form>
                 </div>
 
-                {/* 7. Instant Supervisor Action Triggers (Pinned to Bottom) */}
-                <div className="p-4 border-t border-slate-100/80 bg-white/60 backdrop-blur-md flex items-center gap-2.5 flex-shrink-0">
-                    <button
-                        onClick={handleTakeoverToggle}
-                        className={`flex-1 py-2 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 ${
-                            call.supervisorOverridden 
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20' 
-                                : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
-                        }`}
-                    >
-                        {call.supervisorOverridden ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-                        {call.supervisorOverridden ? 'Release to AI' : 'Take Over Line'}
-                    </button>
+                {/* 8. Dynamic Context-Aware Action Footer (Pinned to Bottom) */}
+                <div className="p-4 border-t border-slate-200/80 bg-white/90 backdrop-blur-2xl flex flex-col gap-2.5 flex-shrink-0">
+                    {/* Operational Category Context Banner */}
+                    <div className="flex items-center justify-between text-[11px] font-mono px-0.5">
+                        {isHighRisk && (
+                            <>
+                                <span className="flex items-center gap-1.5 text-rose-600 font-bold uppercase tracking-wider">
+                                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                                    Critical Incident • Immediate Response
+                                </span>
+                                <span className="text-slate-400">Unit PCR-14 Standby</span>
+                            </>
+                        )}
+                        {isReview && (
+                            <>
+                                <span className="flex items-center gap-1.5 text-amber-700 font-bold uppercase tracking-wider">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                    Supervisor Review • Hazard Verification
+                                </span>
+                                <span className="text-slate-400">Pending Authorization</span>
+                            </>
+                        )}
+                        {isStable && (
+                            <>
+                                <span className="flex items-center gap-1.5 text-blue-600 font-bold uppercase tracking-wider">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                    Stable Routine Call • Autonomous Handling
+                                </span>
+                                <span className="text-slate-400">No Deployment Needed</span>
+                            </>
+                        )}
+                    </div>
 
-                    <button
-                        onClick={handleDispatch}
-                        disabled={dispatched}
-                        className={`flex-1 py-2 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 ${
-                            dispatched 
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
-                        }`}
-                    >
-                        {dispatched ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
-                        {dispatched ? 'Units Dispatched' : 'Dispatch Squad'}
-                    </button>
+                    {/* Action Buttons Row */}
+                    <div className="flex items-center gap-2.5">
+                        {/* Left Action: Voice Channel Control */}
+                        {isOverridden ? (
+                            <button
+                                onClick={handleTakeoverToggle}
+                                className="flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20 active:scale-98"
+                            >
+                                <Radio className="w-3.5 h-3.5" />
+                                <span>Release Back to AI</span>
+                            </button>
+                        ) : isHighRisk ? (
+                            <button
+                                onClick={handleTakeoverToggle}
+                                className="flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20 active:scale-98"
+                            >
+                                <span>Take Over Line</span>
+                            </button>
+                        ) : isReview ? (
+                            <button
+                                onClick={handleTakeoverToggle}
+                                className="flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20 active:scale-98"
+                            >
+                                <span>Intervene Line</span>
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleTakeoverToggle}
+                                className="flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/90 shadow-2xs active:scale-98"
+                            >
+                                <Headphones className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Monitor Channel</span>
+                            </button>
+                        )}
+
+                        {/* Right Action: Context-Aware Incident Action */}
+                        {isHighRisk && (
+                            <button
+                                onClick={handleDispatch}
+                                disabled={dispatched}
+                                className={`flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 ${
+                                    dispatched 
+                                        ? 'bg-rose-50 text-rose-700 border border-rose-200 cursor-default shadow-none' 
+                                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
+                                }`}
+                            >
+                                {dispatched ? (
+                                    <>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-rose-600" />
+                                        <span>Units Dispatched</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send className="w-3.5 h-3.5" />
+                                        <span>Dispatch Emergency Units</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {isReview && (
+                            <button
+                                onClick={handleReviewAction}
+                                disabled={reviewApproved}
+                                className={`flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 ${
+                                    reviewApproved 
+                                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 cursor-default shadow-none' 
+                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
+                                }`}
+                            >
+                                {reviewApproved ? (
+                                    <>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>Triage Approved</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                        <span>Approve &amp; Escalate</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {isStable && (
+                            <button
+                                onClick={handleLogAndClose}
+                                disabled={caseHandled}
+                                className={`flex-1 py-2.5 px-3 rounded-xl font-mono font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-98 ${
+                                    caseHandled 
+                                        ? 'bg-slate-50 text-slate-500 border border-slate-200 cursor-default shadow-none' 
+                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/90 shadow-2xs'
+                                }`}
+                            >
+                                {caseHandled ? (
+                                    <>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>Non-Emergency Handled</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <FileText className="w-3.5 h-3.5 text-slate-500" />
+                                        <span>Log Case &amp; Close by AI</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </aside>
         </div>

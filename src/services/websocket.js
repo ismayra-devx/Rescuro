@@ -94,9 +94,9 @@ class WebSocketService {
 
         let utteranceStep = 0;
         const mockUtterances = [
-            { author: '👤 CALLER (Hinglish)', words: ['Ambulance ', 'ko ', 'bhejiye ', 'jaldi, ', 'Sector ', '18 ', 'mein ', 'bheed ', 'jama ', 'hai!'] },
-            { author: '🤖 RESCURO AI ASSISTANT', words: ['Units ', 'dispatched. ', 'Please ', 'keep ', 'the ', 'victim ', 'stable.'] },
-            { author: '👤 CALLER (Hinglish)', words: ['Haan, ', 'hum ', 'pass ', 'hi ', 'hain, ', 'saans ', 'chal ', 'rahi ', 'hai.'] }
+            { author: 'CALLER (Hinglish)', words: ['Ambulance ', 'ko ', 'bhejiye ', 'jaldi, ', 'Sector ', '18 ', 'mein ', 'bheed ', 'jama ', 'hai!'] },
+            { author: 'RESCURO AI ASSISTANT', words: ['Units ', 'dispatched. ', 'Please ', 'keep ', 'the ', 'victim ', 'stable.'] },
+            { author: 'CALLER (Hinglish)', words: ['Haan, ', 'hum ', 'pass ', 'hi ', 'hain, ', 'saans ', 'chal ', 'rahi ', 'hai.'] }
         ];
 
         this.simulationTimer = setInterval(() => {

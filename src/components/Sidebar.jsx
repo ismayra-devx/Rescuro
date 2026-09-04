@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLiveStream } from '../context/LiveStreamContext';
 import { 
     LayoutDashboard, 
-    Bot, 
+    Headphones, 
     BarChart3, 
     PhoneCall, 
     History, 
@@ -11,21 +11,22 @@ import {
     Settings,
     Radio
 } from 'lucide-react';
-
-import { AgentAvatar } from './AgentAvatar';
+import { SettingsFlyout } from './SettingsFlyout';
 
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'main' },
-    { id: 'agents', label: 'Agents', icon: Bot, section: 'main' },
+    { id: 'agents', label: 'Agents', icon: Headphones, section: 'main' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'main' },
     { id: 'active-calls', label: 'Active Calls', icon: PhoneCall, section: 'ops' },
     { id: 'call-history', label: 'Call History', icon: History, section: 'ops' },
     { id: 'alerts', label: 'Alerts', icon: AlertTriangle, section: 'ops' },
 ];
 
-export const Sidebar = ({ activeTab = 'dashboard', onTabChange }) => {
+export const Sidebar = ({ activeTab = 'dashboard', onTabChange, onToast }) => {
     const { user } = useAuth();
     const { activeCalls, alerts, agents } = useLiveStream();
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const settingsTriggerRef = useRef(null);
 
     const getDynamicBadge = (itemId) => {
         if (itemId === 'active-calls') return activeCalls?.length?.toString() ?? '0';
@@ -59,12 +60,8 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange }) => {
                                 : 'text-slate-500 hover:text-slate-900 hover:bg-white/50 border border-transparent font-medium'
                         }`}
                     >
-                        {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] bg-indigo-600 rounded-r-full" />}
-                        {item.id === 'agents' ? (
-                            <AgentAvatar size="xs" variant={isActive ? 'indigo' : 'transparent'} className="-ml-0.5" />
-                        ) : (
-                            <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
-                        )}
+                        {isActive && <span className="absolute left-0 top-2 bottom-2 w-[2px] bg-blue-600 rounded-r-full" />}
+                        <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
                         <span className="flex-1 truncate">{item.label}</span>
                         {badge && (
                             item.id === 'alerts' ? (
@@ -84,14 +81,14 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange }) => {
     );
 
     return (
-        <aside className="fixed top-0 left-0 w-64 h-screen bg-white/70 backdrop-blur-2xl border-r border-white/80 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col z-40 transition-all">
+        <aside className="fixed top-0 left-0 w-64 h-screen bg-white/75 backdrop-blur-2xl border-r border-white/90 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col z-40 transition-all">
             {/* 1. Executive Brand Header: Sleek Wordmark & Rescue Icon */}
-            <div className="px-4 py-3.5 border-b border-slate-100/80 flex items-center bg-white/40">
+            <div className="px-5 py-4 border-b border-slate-100/80 flex items-center bg-white/40">
                 <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-700 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 flex-shrink-0">
-                        <Radio className="w-3.5 h-3.5" />
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/25 flex-shrink-0">
+                        <Radio className="w-4 h-4" />
                     </div>
-                    <span className="font-extrabold text-sm tracking-tight text-slate-900 font-sans">RESCURO</span>
+                    <span className="font-extrabold text-base tracking-tight text-slate-900 font-sans">RESCURO</span>
                 </div>
             </div>
 
@@ -106,10 +103,10 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange }) => {
                 <div className="flex items-center justify-between gap-2.5 px-2 py-1.5 rounded-xl">
                     <div className="flex items-center gap-2.5 min-w-0">
                         <div className="relative flex-shrink-0">
-                            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-[11px] flex items-center justify-center shadow-xs">
+                            <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-[11px] flex items-center justify-center shadow-xs">
                                 {getInitials(user?.name || 'Ismayra Parveen')}
                             </div>
-                            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 border border-white rounded-full"></span>
+                            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-sky-400 border border-white rounded-full"></span>
                         </div>
                         <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-900 truncate leading-tight">
@@ -119,18 +116,27 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange }) => {
                         </div>
                     </div>
                     <button 
-                        onClick={() => onTabChange && onTabChange('settings')}
-                        className={`p-1.5 rounded-lg border transition-all flex-shrink-0 ${
-                            activeTab === 'settings' 
-                                ? 'bg-white text-indigo-600 border-indigo-200 shadow-xs' 
-                                : 'text-slate-400 hover:text-slate-700 hover:bg-white/80 border-transparent hover:border-slate-200/80'
+                        ref={settingsTriggerRef}
+                        onClick={() => setIsSettingsOpen(prev => !prev)}
+                        className={`p-1.5 rounded-lg border transition-all flex-shrink-0 cursor-pointer ${
+                            isSettingsOpen 
+                                ? 'bg-white text-blue-600 border-blue-300 shadow-xs ring-2 ring-blue-500/20' 
+                                : 'text-slate-400 hover:text-slate-700 hover:bg-white/60 border-transparent'
                         }`}
                         title="Command Center Settings"
                     >
-                        <Settings className="w-4 h-4" />
+                        <Settings className={`w-4 h-4 transition-transform duration-300 ${isSettingsOpen ? 'rotate-90 text-blue-600' : ''}`} />
                     </button>
                 </div>
             </div>
+
+            {/* Contextual Settings Flyout Menu */}
+            <SettingsFlyout
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+                triggerRef={settingsTriggerRef}
+                onToast={onToast}
+            />
         </aside>
     );
 };

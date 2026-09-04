@@ -69,6 +69,18 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const logout = () => {
+        setUser({
+            id: 'user-guest',
+            name: 'Session Logged Out',
+            supervisorId: 'NONE',
+            department: 'Guest Monitoring',
+            token: null,
+            authenticated: false
+        });
+        setCurrentRole(ROLES.GUEST);
+    };
+
     const hasPermission = (permission) => {
         return !!(PERMISSIONS[currentRole] && PERMISSIONS[currentRole][permission]);
     };
@@ -82,6 +94,7 @@ export const AuthProvider = ({ children }) => {
             user,
             currentRole,
             switchRole,
+            logout,
             hasPermission,
             hasRole,
             permissions: PERMISSIONS[currentRole]

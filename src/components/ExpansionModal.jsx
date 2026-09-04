@@ -12,7 +12,6 @@ import {
     Shield, 
     MapPin, 
     Clock, 
-    Zap, 
     Headphones, 
     Volume2, 
     Sliders, 
@@ -22,11 +21,12 @@ import {
     Flame, 
     FileText, 
     Tag, 
-    CheckCircle2 
+    CheckCircle2,
+    ShieldCheck
 } from 'lucide-react';
 
 export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) => {
-    const { activeCalls, alerts, takeOverCall, transcriptSegments } = useLiveStream();
+    const { activeCalls, alerts, takeOverCall, releaseCallToAi, transcriptSegments } = useLiveStream();
     const overlayRef = useRef(null);
     const modalContentRef = useRef(null);
 
@@ -160,7 +160,7 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                             <span className="text-xs font-mono font-bold text-slate-700">
                                 Total Monitored Channels: {activeCalls?.length || 6}
                             </span>
-                            <span className="text-xs font-mono text-emerald-600 font-semibold">Carrier Route A-09 Active</span>
+                            <span className="text-xs font-mono text-blue-600 font-semibold">Carrier Route A-09 Active</span>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs">
@@ -176,46 +176,90 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                                    {(activeCalls || []).map((call) => (
-                                        <tr key={call.id} className="hover:bg-slate-50/80 transition-colors">
-                                            <td className="py-3 font-mono font-bold text-indigo-600">{call.id}</td>
-                                            <td className="py-3 font-mono font-semibold text-slate-900">{call.maskedId || call.caller}</td>
-                                            <td className="py-3 text-slate-600">{call.location}</td>
-                                            <td className="py-3 font-mono text-slate-500">{formatDuration(call.durationSec)}</td>
-                                            <td className="py-3">
-                                                <span className="px-2 py-0.5 rounded bg-slate-100 font-mono text-[11px] text-slate-700">{call.lang}</span>
-                                            </td>
-                                            <td className="py-3">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                                                    call.risk === 'HIGH' ? 'bg-rose-50 text-rose-600 border-rose-200' :
-                                                    call.risk === 'REVIEW' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                    'bg-slate-100 text-slate-700 border-slate-200'
-                                                }`}>
-                                                    {call.risk}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 text-right">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <button 
-                                                        onClick={() => onToast && onToast(`Patched into line ${call.id}`, 'listen')}
-                                                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"
-                                                        title="Patch In"
-                                                    >
-                                                        <Headphones className="w-3.5 h-3.5" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => {
-                                                            takeOverCall(call.id);
-                                                            if (onToast) onToast(`Supervisor took over ${call.id}`, 'zap');
-                                                        }}
-                                                        className="py-1 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 shadow-xs"
-                                                    >
-                                                        <Zap className="w-3 h-3" /> Take Over
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {(activeCalls || []).map((call) => {
+                                        const isOverridden = !!call.supervisorOverridden;
+                                        return (
+                                            <tr 
+                                                key={call.id} 
+                                                className={`transition-colors ${
+                                                    isOverridden 
+                                                        ? 'bg-blue-50/40 hover:bg-blue-50/60 border-l-4 border-l-blue-600' 
+                                                        : 'hover:bg-slate-50/80'
+                                                }`}
+                                            >
+                                                <td className="py-3 font-mono font-bold text-indigo-600">
+                                                    <div className="flex items-center gap-1.5">
+                                                        {isOverridden && (
+                                                            <span className="relative flex h-2 w-2">
+                                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                                            </span>
+                                                        )}
+                                                        <span>{call.id}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 font-mono font-semibold text-slate-900">{call.maskedId || call.caller}</td>
+                                                <td className="py-3 text-slate-600">{call.location}</td>
+                                                <td className="py-3 font-mono text-slate-500">{formatDuration(call.durationSec)}</td>
+                                                <td className="py-3">
+                                                    <span className="px-2 py-0.5 rounded bg-slate-100 font-mono text-[11px] text-slate-700">{call.lang}</span>
+                                                </td>
+                                                <td className="py-3">
+                                                    {isOverridden ? (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold bg-blue-100 text-blue-900 border border-blue-300 tracking-wider">
+                                                            <ShieldCheck className="w-3 h-3 text-blue-600" />
+                                                            <span>SUPERVISOR ACTIVE</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                                            call.risk === 'HIGH' ? 'bg-rose-50 text-rose-600 border-rose-200' :
+                                                            call.risk === 'REVIEW' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                            'bg-slate-100 text-slate-700 border-slate-200'
+                                                        }`}>
+                                                            {call.risk}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3 text-right">
+                                                    <div className="inline-flex items-center justify-end p-1 rounded-xl bg-slate-100/90 border border-slate-200/90 shadow-2xs gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                        {/* Secondary Utility Controls Dock */}
+                                                        <div className="flex items-center pr-1 border-r border-slate-200/80">
+                                                            <button 
+                                                                onClick={() => onToast && onToast(`Patched into line ${call.id}`, 'listen')}
+                                                                className="group/btn p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition-all duration-200 active:scale-95 shadow-none hover:shadow-2xs"
+                                                                title="Listen-In Live Audio"
+                                                            >
+                                                                <Headphones className="w-3.5 h-3.5 transition-transform duration-200 group-hover/btn:scale-110" />
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Primary Single-Line Action Button */}
+                                                        {isOverridden ? (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    releaseCallToAi(call.id);
+                                                                    if (onToast) onToast(`Released ${call.id} back to AI`, 'check');
+                                                                }}
+                                                                className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
+                                                            >
+                                                                <span>Release AI</span>
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    takeOverCall(call.id);
+                                                                    if (onToast) onToast(`Supervisor took over ${call.id}`, 'phone');
+                                                                }}
+                                                                className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
+                                                            >
+                                                                Take Over
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -261,7 +305,7 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
                             <div className="flex items-center justify-between text-xs font-mono text-slate-500">
                                 <span className="font-semibold">Spectral Frequency Scrubber (20Hz - 24,000Hz)</span>
-                                <span className="text-emerald-600 font-bold">SNR Gain: +18.4 dB</span>
+                                <span className="text-blue-600 font-bold">SNR Gain: +18.4 dB</span>
                             </div>
                             <div className="h-28 flex items-end justify-between gap-1 px-2 pt-4 bg-slate-50 rounded-xl border border-slate-100">
                                 {Array.from({ length: 48 }).map((_, i) => {
@@ -288,7 +332,7 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                             </div>
                             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                                 <span className="text-slate-400 font-mono text-[10px] uppercase font-bold">Packet Loss</span>
-                                <p className="text-base font-bold font-mono text-emerald-600 mt-0.5">0.0% (Jitter 12ms)</p>
+                                <p className="text-base font-bold font-mono text-blue-600 mt-0.5">0.0% (Jitter 12ms)</p>
                             </div>
                             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                                 <div className="flex justify-between mb-1">
@@ -364,7 +408,9 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                             dispatchedUnits.amb ? 'bg-slate-800 text-white cursor-default' : 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs'
                                         }`}
                                     >
-                                        {dispatchedUnits.amb ? '✓ Dispatched' : 'Dispatch ALS'}
+                                        {dispatchedUnits.amb ? (
+                                            <span className="flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Dispatched</span>
+                                        ) : 'Dispatch ALS'}
                                     </button>
                                 </div>
 
@@ -391,7 +437,9 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                             dispatchedUnits.pcr ? 'bg-slate-800 text-white cursor-default' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
                                         }`}
                                     >
-                                        {dispatchedUnits.pcr ? '✓ Dispatched' : 'Dispatch Police'}
+                                        {dispatchedUnits.pcr ? (
+                                            <span className="flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Dispatched</span>
+                                        ) : 'Dispatch Police'}
                                     </button>
                                 </div>
 
@@ -418,7 +466,9 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                             dispatchedUnits.fire ? 'bg-slate-800 text-white cursor-default' : 'bg-slate-900 hover:bg-slate-800 text-white shadow-xs'
                                         }`}
                                     >
-                                        {dispatchedUnits.fire ? '✓ Dispatched' : 'Dispatch HazMat'}
+                                        {dispatchedUnits.fire ? (
+                                            <span className="flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Dispatched</span>
+                                        ) : 'Dispatch HazMat'}
                                     </button>
                                 </div>
                             </div>
@@ -434,14 +484,14 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                 onClick={() => {
                                     setIsOverridden(true);
                                     takeOverCall('C-1021');
-                                    if (onToast) onToast('Supervisor SUP-004 took over Line C-1021', 'zap');
+                                    if (onToast) onToast('Supervisor SUP-004 took over Line C-1021', 'phone');
                                 }}
                                 disabled={isOverridden}
-                                className={`py-2 px-4 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all ${
+                                className={`py-2 px-4 rounded-xl font-bold text-xs flex items-center justify-center transition-all ${
                                     isOverridden ? 'bg-slate-800 text-white cursor-default' : 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs'
                                 }`}
                             >
-                                <Zap className="w-3.5 h-3.5" /> {isOverridden ? '✓ Voice Controlled (SUP-004)' : 'Take Over Line'}
+                                {isOverridden ? 'Voice Controlled (SUP-004)' : 'Take Over Line'}
                             </button>
                         </div>
                     </div>
@@ -631,7 +681,7 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                                 <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
                                     {meta.title}
                                 </h3>
-                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                                <span className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider border ${
                                     meta.badgeColor === 'rose' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                                 }`}>
                                     {meta.badge}

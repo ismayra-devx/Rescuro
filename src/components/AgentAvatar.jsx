@@ -20,8 +20,9 @@ export const AgentAvatar = ({
 
     // Background styling tailored to blend harmoniously into any surface
     const variantStyles = {
-        indigo: 'bg-gradient-to-br from-indigo-50 to-indigo-100/60 border-indigo-200/70 shadow-xs',
-        emerald: 'bg-gradient-to-br from-emerald-50 to-emerald-100/60 border-emerald-200/70 shadow-xs',
+        indigo: 'bg-gradient-to-br from-sky-50 to-blue-100/60 border-blue-200/70 shadow-xs',
+        blue: 'bg-gradient-to-br from-sky-50 to-blue-100/60 border-blue-200/70 shadow-xs',
+        emerald: 'bg-gradient-to-br from-sky-50 to-blue-100/60 border-blue-200/70 shadow-xs',
         amber: 'bg-gradient-to-br from-amber-50 to-amber-100/60 border-amber-200/70 shadow-xs',
         slate: 'bg-slate-100/90 border-slate-200 shadow-2xs',
         white: 'bg-white/90 border-white/90 shadow-xs',
@@ -32,16 +33,16 @@ export const AgentAvatar = ({
 
     return (
         <div className={`relative inline-flex items-center justify-center flex-shrink-0 ${className}`}>
-            <div className={`${containerSize} rounded-xl border flex items-center justify-center overflow-hidden p-0.5 transition-transform ${badgeStyle}`}>
+            <div className={`${containerSize} rounded-full flex items-center justify-center overflow-hidden p-0.5 transition-transform ${badgeStyle}`}>
                 <img 
-                    src="/assets/agent-avatar.png" 
+                    src="/assets/agent-orb.png" 
                     alt="AI Agent" 
-                    className="w-full h-full object-contain filter drop-shadow-2xs select-none"
+                    className="w-full h-full object-contain filter drop-shadow-[0_2px_8px_rgba(56,189,248,0.25)] select-none"
                     loading="eager"
                 />
             </div>
             {showStatus && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-sky-400 ring-2 ring-white" />
             )}
         </div>
     );

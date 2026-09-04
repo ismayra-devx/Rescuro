@@ -59,7 +59,7 @@ export const SettingsView = ({ onToast }) => {
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-50">
                             <span className="text-slate-500">Round-Trip Latency</span>
-                            <span className="font-mono font-bold text-emerald-600">11.8 ms (Carrier Grade)</span>
+                            <span className="font-mono font-bold text-blue-600">11.8 ms (Carrier Grade)</span>
                         </div>
                         <div className="flex items-center justify-between pt-1">
                             <div>
@@ -82,7 +82,7 @@ export const SettingsView = ({ onToast }) => {
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 font-mono">
                             <Radio className="w-4 h-4 text-indigo-600" /> Pipeline Audio &amp; STT Config
                         </div>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                             Opus 24kHz
                         </span>
                     </div>
@@ -132,7 +132,7 @@ export const SettingsView = ({ onToast }) => {
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 font-mono">
                             <User className="w-4 h-4 text-indigo-600" /> Active Supervisor Profile &amp; Audit Authority
                         </div>
-                        <span className="text-xs font-mono font-bold text-emerald-600 flex items-center gap-1">
+                        <span className="text-xs font-mono font-bold text-blue-600 flex items-center gap-1">
                             <Check className="w-3.5 h-3.5" /> Officer Authenticated
                         </span>
                     </div>
@@ -152,7 +152,7 @@ export const SettingsView = ({ onToast }) => {
                         </div>
                         <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                             <span className="text-[10px] uppercase font-bold text-slate-400 font-mono block">Override Clearance</span>
-                            <span className="font-mono font-bold text-emerald-600 text-sm mt-0.5 block">Level 3 Priority-1</span>
+                            <span className="font-mono font-bold text-blue-600 text-sm mt-0.5 block">Level 3 Priority-1</span>
                         </div>
                     </div>
                 </div>

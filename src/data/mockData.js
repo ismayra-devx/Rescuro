@@ -19,7 +19,7 @@ export const CARD_DATA = {
     'active-calls': {
         id: 'active-calls',
         title: 'Active Concurrent Calls Telemetry',
-        icon: '📞',
+        icon: 'phone',
         badge: '12 CONCURRENT',
         badgeColor: 'indigo',
         subtitle: 'Noida Sector 18 Regional Exchange • Carrier Route A-09',
@@ -38,9 +38,9 @@ export const CARD_DATA = {
     'audio-stream': {
         id: 'audio-stream',
         title: 'Agora ANS & AI-VAD Audio Stream Deep Dive',
-        icon: '🎙️',
+        icon: 'mic',
         badge: 'LIVE ANS NOISE REDUCTION',
-        badgeColor: 'emerald',
+        badgeColor: 'blue',
         subtitle: 'Real-time WebRTC 24kHz Stream • Agora AI Acoustic Suppression',
         telemetry: {
             noiseSuppressionDb: '-24.5 dB',
@@ -57,7 +57,7 @@ export const CARD_DATA = {
     'emergencies': {
         id: 'emergencies',
         title: 'Emergency Triage & Escalation Dispatch',
-        icon: '⚠️',
+        icon: 'alert-triangle',
         badge: 'PRIORITY 1 - SEVERE',
         badgeColor: 'rose',
         subtitle: 'Automated Multi-Agency Dispatch Protocol Active',
@@ -76,7 +76,7 @@ export const CARD_DATA = {
     'transcription': {
         id: 'transcription',
         title: 'Live Bilingual Audio Transcription & NLP Diagnostics',
-        icon: '💬',
+        icon: 'message-square',
         badge: 'DEEPGRAM NOVA-2 STREAM',
         badgeColor: 'indigo',
         subtitle: 'Hinglish Mixed-Language Speech-to-Text Model',
@@ -95,7 +95,7 @@ export const CARD_DATA = {
     'metadata': {
         id: 'metadata',
         title: 'AI Entity Extraction & Incident Classification',
-        icon: '⚡',
+        icon: 'zap',
         badge: 'AUTO-TRIAGE MODEL 4.2',
         badgeColor: 'indigo',
         subtitle: 'Real-time JSON schema slot extraction from voice dialogue',
@@ -114,7 +114,7 @@ export const CARD_DATA = {
     'risk-override': {
         id: 'risk-override',
         title: 'High Risk Incident Telemetry & Supervisor Override',
-        icon: '🚨',
+        icon: 'shield-alert',
         badge: 'OVERRIDE ACTION REQUIRED',
         badgeColor: 'rose',
         subtitle: 'AI Risk Confidence 92% • Immediate Supervisor Intervention Recommended',
@@ -135,15 +135,15 @@ export const CARD_DATA = {
 export const CALL_QUEUE_DATA = [
     { id: "****4521", duration: "03:42", lang: "Hinglish", risk: "HIGH", riskClass: "bg-rose-50 text-rose-600 border border-rose-200/60", location: "Noida Sector 18" },
     { id: "****7219", duration: "01:38", lang: "Hindi", risk: "REVIEW", riskClass: "bg-amber-50 text-amber-700 border border-amber-200/60", location: "Gurugram" },
-    { id: "****4582", duration: "02:14", lang: "Hinglish", risk: "SAFE", riskClass: "bg-emerald-50 text-emerald-600 border border-emerald-200/60", location: "South Delhi" },
-    { id: "****9831", duration: "00:51", lang: "English", risk: "SAFE", riskClass: "bg-emerald-50 text-emerald-600 border border-emerald-200/60", location: "Faridabad" }
+    { id: "****4582", duration: "02:14", lang: "Hinglish", risk: "SAFE", riskClass: "bg-blue-50 text-blue-600 border border-blue-200/60", location: "South Delhi" },
+    { id: "****9831", duration: "00:51", lang: "English", risk: "SAFE", riskClass: "bg-blue-50 text-blue-600 border border-blue-200/60", location: "Faridabad" }
 ];
 
 export const CALL_HISTORY_DATA = [
     { callId: "C-1021", incident: "Road Accident", risk: "HIGH", status: "In Progress", statusColor: "text-amber-600", desc: "Dispatched Medical Squad" },
-    { callId: "C-1020", incident: "Medical Help", risk: "LOW", status: "AI Resolved", statusColor: "text-emerald-600", desc: "Resolved by AI Assistant" },
+    { callId: "C-1020", incident: "Medical Help", risk: "LOW", status: "AI Resolved", statusColor: "text-blue-600", desc: "Resolved by AI Assistant" },
     { callId: "C-1019", incident: "Fire Incident", risk: "MEDIUM", status: "Handed Over", statusColor: "text-indigo-600", desc: "Handed Over to Supervisor" },
-    { callId: "C-1018", incident: "Gas Leak", risk: "HIGH", status: "Dispatched", statusColor: "text-emerald-600", desc: "Gas Leak Response Team Dispatched" }
+    { callId: "C-1018", incident: "Gas Leak", risk: "HIGH", status: "Dispatched", statusColor: "text-blue-600", desc: "Gas Leak Response Team Dispatched" }
 ];
 
 // Backwards compatibility for window globals if needed

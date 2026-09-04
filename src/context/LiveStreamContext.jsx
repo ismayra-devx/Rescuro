@@ -60,7 +60,7 @@ export const INITIAL_CALLS_LIST = [
         lang: 'Hinglish', 
         durationSec: 84, 
         risk: 'SAFE', 
-        riskColor: 'emerald',
+        riskColor: 'blue',
         urgency: 'LOW',
         snippet: 'Bike slip hui thi rain mein, haath mein chhil gaya hai, bandage chahiye...',
         supervisorOverridden: false
@@ -75,7 +75,7 @@ export const INITIAL_CALLS_LIST = [
         lang: 'English', 
         durationSec: 62, 
         risk: 'SAFE', 
-        riskColor: 'emerald',
+        riskColor: 'blue',
         urgency: 'LOW',
         snippet: 'Tripped near Inner Circle block B, unable to put weight on right foot...',
         supervisorOverridden: false
@@ -147,7 +147,7 @@ export const INITIAL_AGENTS_LIST = [
         totalCalls: 624,
         ttsVoice: 'Jessica (Calm Clinical)',
         supportedLangs: ['English', 'Hinglish', 'Hindi'],
-        gradient: 'from-indigo-600 to-violet-600'
+        gradient: 'from-indigo-600 to-blue-600'
     },
     {
         id: 'agent-rhea',
@@ -162,7 +162,7 @@ export const INITIAL_AGENTS_LIST = [
         totalCalls: 489,
         ttsVoice: 'Aditi (Bilingual Hindi-Eng)',
         supportedLangs: ['Hindi', 'Hinglish', 'Bhojpuri'],
-        gradient: 'from-emerald-600 to-teal-600'
+        gradient: 'from-sky-500 to-blue-600'
     },
     {
         id: 'agent-aegis',
@@ -279,7 +279,7 @@ export const LiveStreamProvider = ({ children }) => {
                 ...prev,
                 {
                     id: Date.now() + Math.random(),
-                    author: isAi ? '🤖 RESCURO AI ASSISTANT' : '👤 CALLER (Hinglish)',
+                    author: isAi ? 'RESCURO AI ASSISTANT' : 'CALLER (Hinglish)',
                     text: text,
                     isAi: isAi
                 }
@@ -302,13 +302,42 @@ export const LiveStreamProvider = ({ children }) => {
         };
     }, []);
 
+    // Audio Override State (Human-in-the-Loop)
+    const [isSupervisorMicMuted, setIsSupervisorMicMuted] = useState(false);
+    const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
+    const [isSupervisorOnHold, setIsSupervisorOnHold] = useState(false);
+    const [supervisorVolume, setSupervisorVolume] = useState(85);
+    const [takeoverModalCallId, setTakeoverModalCallId] = useState(null);
+
+    const toggleSupervisorMic = useCallback(() => {
+        setIsSupervisorMicMuted(prev => !prev);
+    }, []);
+
+    const toggleSpeakerMute = useCallback(() => {
+        setIsSpeakerMuted(prev => !prev);
+    }, []);
+
+    const toggleSupervisorHold = useCallback(() => {
+        setIsSupervisorOnHold(prev => !prev);
+    }, []);
+
+    const openTakeoverModal = useCallback((callId) => {
+        setTakeoverModalCallId(callId);
+    }, []);
+
+    const closeTakeoverModal = useCallback(() => {
+        setTakeoverModalCallId(null);
+    }, []);
+
     // Interactive Action Handlers (Reactive across all views)
-    const takeOverCall = useCallback((callId) => {
+    const takeOverCall = useCallback((callId, openModal = true) => {
         setActiveCalls(prev => prev.map(c => {
             if (c.id === callId) {
                 return {
                     ...c,
+                    originalRisk: c.originalRisk || c.risk,
                     supervisorOverridden: true,
+                    supervisorId: 'SUP-004',
                     status: 'Supervisor Active (SUP-004)',
                     risk: 'REVIEW',
                     riskColor: 'amber'
@@ -316,10 +345,31 @@ export const LiveStreamProvider = ({ children }) => {
             }
             return c;
         }));
+        if (openModal) {
+            setTakeoverModalCallId(callId);
+        }
+    }, []);
+
+    const releaseCallToAi = useCallback((callId) => {
+        setActiveCalls(prev => prev.map(c => {
+            if (c.id === callId) {
+                return {
+                    ...c,
+                    supervisorOverridden: false,
+                    status: 'AI Autonomous',
+                    risk: c.originalRisk || (c.id === 'C-1021' || c.id === 'C-1022' ? 'HIGH' : 'SAFE'),
+                    riskColor: (c.originalRisk === 'HIGH' || c.id === 'C-1021' || c.id === 'C-1022') ? 'rose' : 'blue'
+                };
+            }
+            return c;
+        }));
+        setIsSupervisorOnHold(false);
+        setTakeoverModalCallId(prev => prev === callId ? null : prev);
     }, []);
 
     const resolveCall = useCallback((callId) => {
         setActiveCalls(prev => prev.filter(c => c.id !== callId));
+        setTakeoverModalCallId(prev => prev === callId ? null : prev);
     }, []);
 
     const resolveAlert = useCallback((alertId) => {
@@ -361,10 +411,22 @@ export const LiveStreamProvider = ({ children }) => {
             alerts,
             agents,
             takeOverCall,
+            releaseCallToAi,
             resolveCall,
             resolveAlert,
             toggleAgentMode,
-            dispatchAction
+            dispatchAction,
+            isSupervisorMicMuted,
+            isSpeakerMuted,
+            isSupervisorOnHold,
+            supervisorVolume,
+            takeoverModalCallId,
+            openTakeoverModal,
+            closeTakeoverModal,
+            toggleSupervisorMic,
+            toggleSpeakerMute,
+            toggleSupervisorHold,
+            setSupervisorVolume
         }}>
             {children}
         </LiveStreamContext.Provider>

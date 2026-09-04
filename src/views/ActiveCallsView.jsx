@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { PhoneCall, Headphones, Zap, Clock, MapPin, Search, Maximize2 } from 'lucide-react';
+import { PhoneCall, Headphones, Clock, MapPin, Search, Maximize2, ShieldCheck } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
 import { CallDetailDrawer } from '../components/CallDetailDrawer';
-import { AgentAvatar } from '../components/AgentAvatar';
 
 export const ActiveCallsView = ({ onToast }) => {
-    const { activeCalls, takeOverCall, resolveCall } = useLiveStream();
-    const [selectedCall, setSelectedCall] = useState(null);
+    const { activeCalls, takeOverCall, releaseCallToAi, resolveCall, openTakeoverModal } = useLiveStream();
+    const [selectedCallId, setSelectedCallId] = useState(null);
     const [riskFilter, setRiskFilter] = useState('ALL');
     const [query, setQuery] = useState('');
 
     const fmt = (sec = 0) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+
+    const selectedCall = activeCalls?.find(c => c.id === selectedCallId) || null;
 
     const filtered = (activeCalls || []).filter(c => 
         (riskFilter === 'ALL' || c.risk === riskFilter) &&
@@ -19,7 +20,7 @@ export const ActiveCallsView = ({ onToast }) => {
 
     return (
         <div className="space-y-4">
-            {/* 1 & 4. Executive Header & Clean Filter Bar (No Subtitle Clutter) */}
+            {/* 1 & 4. Executive Header & Clean Filter Bar */}
             <div className="bg-white/70 backdrop-blur-2xl border border-white/80 rounded-2xl p-4 shadow-[0_12px_40px_rgb(0,0,0,0.04)] flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                     <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/60 shadow-2xs">
@@ -29,7 +30,7 @@ export const ActiveCallsView = ({ onToast }) => {
                         <h3 className="text-sm font-black text-slate-900 font-mono tracking-tight">
                             Active Concurrent Calls Registry
                         </h3>
-                        <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs">
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs">
                             {activeCalls.length} In-Flight
                         </span>
                     </div>
@@ -60,7 +61,7 @@ export const ActiveCallsView = ({ onToast }) => {
                 </div>
             </div>
 
-            {/* 1, 2 & 3. High-Density Enterprise Command Table */}
+            {/* High-Density Enterprise Command Table */}
             <div className="bg-white/70 backdrop-blur-2xl border border-white/80 rounded-2xl overflow-hidden shadow-[0_12px_40px_rgb(0,0,0,0.04)]">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
@@ -72,7 +73,7 @@ export const ActiveCallsView = ({ onToast }) => {
                                 <th className="py-2.5 px-3.5">Geo-Location</th>
                                 <th className="py-2.5 px-3.5">Duration</th>
                                 <th className="py-2.5 px-3.5">Language</th>
-                                <th className="py-2.5 px-3.5">Assigned Agent</th>
+                                <th className="py-2.5 px-3.5">Assigned Agent / Audio State</th>
                                 <th className="py-2.5 px-3.5">Risk Tier</th>
                                 <th className="py-2.5 px-3.5 text-right">Actions</th>
                             </tr>
@@ -81,20 +82,21 @@ export const ActiveCallsView = ({ onToast }) => {
                             {filtered.map(call => {
                                 const isHighRisk = call.risk === 'HIGH';
                                 const isReview = call.risk === 'REVIEW';
+                                const isOverridden = !!call.supervisorOverridden;
                                 return (
                                     <tr 
                                         key={call.id} 
-                                        onClick={() => setSelectedCall(call)}
+                                        onClick={() => setSelectedCallId(call.id)}
                                         className={`transition-all duration-150 cursor-pointer ${
-                                            selectedCall?.id === call.id
-                                                ? 'bg-indigo-50/70 border-l-2 border-l-indigo-600 shadow-inner'
-                                                : call.supervisorOverridden 
-                                                ? 'border-l-2 border-l-amber-500 bg-amber-50/40 hover:bg-amber-50/60'
+                                            selectedCallId === call.id
+                                                ? 'bg-indigo-50/70 shadow-inner'
+                                                : isOverridden 
+                                                ? 'bg-blue-50/40 hover:bg-blue-50/60'
                                                 : isHighRisk 
-                                                ? 'border-l-2 border-l-rose-500 bg-gradient-to-r from-rose-50/80 via-rose-50/30 to-transparent hover:from-rose-100/70'
+                                                ? 'bg-rose-50/30 hover:bg-rose-50/50'
                                                 : isReview
-                                                ? 'border-l-2 border-l-amber-400/80 bg-amber-50/20 hover:bg-amber-50/40'
-                                                : 'border-l-2 border-l-transparent hover:bg-slate-50/70'
+                                                ? 'bg-amber-50/20 hover:bg-amber-50/30'
+                                                : 'hover:bg-slate-50/70'
                                         }`}
                                     >
                                         <td className="py-2.5 px-3.5 font-mono font-black text-indigo-600 tracking-tight">{call.id}</td>
@@ -112,60 +114,88 @@ export const ActiveCallsView = ({ onToast }) => {
                                         <td className="py-2.5 px-3.5">
                                             <span className="px-2 py-0.5 rounded font-mono text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/60">{call.lang}</span>
                                         </td>
-                                        <td className="py-2.5 px-3.5 text-[11px] font-semibold font-mono text-indigo-700 align-middle">
-                                            <div className="flex items-center gap-1.5">
-                                                <AgentAvatar size="xs" variant="indigo" />
-                                                <span>{call.supervisorOverridden ? 'SUP-004 (Active)' : call.agent}</span>
-                                            </div>
-                                        </td>
+
+                                        {/* Assigned Agent Column: Swaps to Glowing Supervisor Status when Overridden */}
                                         <td className="py-2.5 px-3.5 align-middle">
-                                            {call.supervisorOverridden ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-amber-500 text-white shadow-xs">
-                                                    CONTROLLED
-                                                </span>
+                                            {isOverridden ? (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); openTakeoverModal(call.id); }}
+                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-900 shadow-2xs ring-1 ring-blue-400/20 cursor-pointer transition-all active:scale-95"
+                                                    title="Open Supervisor Command Modal"
+                                                >
+                                                    <span className="relative flex h-2 w-2">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                                    </span>
+                                                    <span className="text-[10px] font-mono font-bold uppercase tracking-tight flex items-center gap-1">
+                                                        <ShieldCheck className="w-3 h-3 text-blue-600" />
+                                                        <span>Supervisor Active</span>
+                                                    </span>
+                                                </button>
+                                            ) : (
+                                                <div className="flex items-center text-[11px] font-semibold font-mono text-slate-700">
+                                                    <span className="truncate">{call.agent}</span>
+                                                </div>
+                                            )}
+                                        </td>
+
+                                        <td className="py-2.5 px-3.5 align-middle">
+                                            {isOverridden ? (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); openTakeoverModal(call.id); }}
+                                                    className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[10px] font-mono font-bold bg-blue-100/90 hover:bg-blue-200 text-blue-900 border border-blue-300 shadow-xs cursor-pointer transition-all active:scale-95"
+                                                    title="Open Supervisor Command Modal"
+                                                >
+                                                    LIVE AUDIO
+                                                </button>
                                             ) : isHighRisk ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-rose-600 text-white shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-rose-600 text-white shadow-xs">
                                                     CRITICAL
                                                 </span>
                                             ) : isReview ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-amber-50 text-amber-700 border border-amber-200 shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 shadow-xs">
                                                     REVIEW
                                                 </span>
                                             ) : (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 shadow-xs">
                                                     STABLE
                                                 </span>
                                             )}
                                         </td>
                                         <td className="py-2.5 px-3.5 text-right align-middle">
-                                            <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    onClick={() => setSelectedCall(call)}
-                                                    className="p-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold transition-colors shadow-2xs"
-                                                    title="Inspect in Slide-Over Drawer"
-                                                >
-                                                    <Maximize2 className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => onToast && onToast(`Monitoring audio feed for ${call.id}`, 'listen')}
-                                                    className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold transition-colors shadow-2xs"
-                                                    title="Monitor Audio"
-                                                >
-                                                    <Headphones className="w-3.5 h-3.5" />
-                                                </button>
-                                                {!call.supervisorOverridden ? (
+                                            <div className="inline-flex items-center justify-end p-1 rounded-xl bg-slate-100/90 border border-slate-200/90 shadow-2xs gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                {/* Unified Secondary Utility Controls Dock */}
+                                                <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200/80">
                                                     <button
-                                                        onClick={() => { takeOverCall(call.id); onToast && onToast(`Took over line ${call.id}`, 'zap'); }}
-                                                        className="py-1 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-mono font-bold text-[11px] transition-all flex items-center gap-1 shadow-xs hover:shadow-sm"
+                                                        onClick={() => setSelectedCallId(call.id)}
+                                                        className="group/btn p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition-all duration-200 active:scale-95 shadow-none hover:shadow-2xs"
+                                                        title="Inspect in Slide-Over Drawer"
                                                     >
-                                                        <Zap className="w-3 h-3" /> Take Over
+                                                        <Maximize2 className="w-3.5 h-3.5 transition-transform duration-200 group-hover/btn:scale-110" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => onToast && onToast(`Monitoring audio feed for ${call.id}`, 'listen')}
+                                                        className="group/btn p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition-all duration-200 active:scale-95 shadow-none hover:shadow-2xs"
+                                                        title="Listen-In Live Audio"
+                                                    >
+                                                        <Headphones className="w-3.5 h-3.5 transition-transform duration-200 group-hover/btn:scale-110" />
+                                                    </button>
+                                                </div>
+
+                                                {/* Primary Single-Line Action Button */}
+                                                {!isOverridden ? (
+                                                    <button
+                                                        onClick={() => { takeOverCall(call.id); onToast && onToast(`Took over line ${call.id}`, 'phone'); }}
+                                                        className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
+                                                    >
+                                                        Take Over
                                                     </button>
                                                 ) : (
                                                     <button
-                                                        onClick={() => { resolveCall(call.id); onToast && onToast(`Resolved ${call.id}`, 'check'); }}
-                                                        className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-[11px] transition-all flex items-center gap-1 shadow-xs"
+                                                        onClick={() => { releaseCallToAi(call.id); onToast && onToast(`Released ${call.id} back to AI`, 'check'); }}
+                                                        className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
                                                     >
-                                                        Resolve
+                                                        Release AI
                                                     </button>
                                                 )}
                                             </div>
@@ -182,7 +212,7 @@ export const ActiveCallsView = ({ onToast }) => {
             <CallDetailDrawer 
                 call={selectedCall} 
                 isOpen={!!selectedCall} 
-                onClose={() => setSelectedCall(null)} 
+                onClose={() => setSelectedCallId(null)} 
                 onToast={onToast} 
             />
         </div>

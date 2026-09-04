@@ -59,7 +59,7 @@ export const SupervisorControls = ({ onToast }) => {
             <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
                 <div className="flex items-center gap-2">
                     <svg className="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                     </svg>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-rose-600">
                         Supervisor Override Center
@@ -115,7 +115,7 @@ export const SupervisorControls = ({ onToast }) => {
                         onClick={handleDispatch}
                         className={`w-full py-3 px-4 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 active:scale-98 ${
                             isDispatched 
-                                ? 'bg-emerald-600 text-white shadow-emerald-500/20' 
+                                ? 'bg-blue-600 text-white shadow-blue-500/20' 
                                 : 'bg-rose-600 text-white shadow-rose-500/20 hover:bg-rose-700'
                         }`}
                     >

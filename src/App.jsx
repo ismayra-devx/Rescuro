@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ExpansionModal } from './components/ExpansionModal';
+import { TakeoverModal } from './components/TakeoverModal';
 
 // Dedicated Page Views
 import { DashboardView } from './views/DashboardView';
@@ -10,7 +11,6 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { ActiveCallsView } from './views/ActiveCallsView';
 import { CallHistoryView } from './views/CallHistoryView';
 import { AlertsView } from './views/AlertsView';
-import { SettingsView } from './views/SettingsView';
 
 export const App = () => {
     // Dynamic Active Tab State for Sidebar Routing
@@ -57,8 +57,6 @@ export const App = () => {
                 return <CallHistoryView onToast={showToast} />;
             case 'alerts':
                 return <AlertsView onToast={showToast} />;
-            case 'settings':
-                return <SettingsView onToast={showToast} />;
             case 'dashboard':
             default:
                 return (
@@ -100,6 +98,9 @@ export const App = () => {
                     onToast={showToast}
                 />
             )}
+
+            {/* High-Priority Human-in-the-Loop Takeover Modal */}
+            <TakeoverModal onToast={showToast} />
         </div>
     );
 };

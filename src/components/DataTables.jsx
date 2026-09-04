@@ -1,12 +1,10 @@
 import React from 'react';
 import { useLiveStream } from '../context/LiveStreamContext';
-import { AgentAvatar } from './AgentAvatar';
 import { 
     PhoneCall, 
     MapPin, 
     Compass, 
     Maximize2, 
-    Zap, 
     Headphones,
     Clock,
     AlertTriangle,
@@ -14,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export const DataTables = ({ onCardClick, onToast }) => {
-    const { activeCalls, takeOverCall } = useLiveStream();
+    const { activeCalls, takeOverCall, releaseCallToAi, openTakeoverModal } = useLiveStream();
 
     const formatDuration = (sec = 0) => {
         const m = Math.floor(sec / 60);
@@ -38,14 +36,14 @@ export const DataTables = ({ onCardClick, onToast }) => {
             >
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100/80 mb-2.5">
                     <div className="flex items-center gap-2.5">
-                        <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100/60 shadow-2xs">
+                        <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-100/60 shadow-2xs">
                             <PhoneCall className="w-3.5 h-3.5" />
                         </span>
                         <div className="flex items-center gap-2">
                             <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 font-mono">
                                 Live Concurrent Calls Registry
                             </h3>
-                            <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50/90 px-2 py-0.5 rounded border border-indigo-200/80 shadow-2xs">
+                            <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50/90 px-2.5 py-0.5 rounded-md border border-blue-200/80 shadow-2xs">
                                 {activeCalls?.length ?? 0} In-Flight
                             </span>
                         </div>
@@ -72,24 +70,22 @@ export const DataTables = ({ onCardClick, onToast }) => {
                             {sortedCalls.slice(0, 5).map((call) => {
                                 const isHighRisk = call.risk === 'HIGH';
                                 const isReview = call.risk === 'REVIEW';
+                                const isOverridden = !!call.supervisorOverridden;
                                 return (
                                     <tr 
                                         key={call.id}
                                         className={`transition-all duration-150 ${
-                                            call.supervisorOverridden 
-                                                ? 'border-l-2 border-l-amber-500 bg-amber-50/40 hover:bg-amber-50/60'
+                                            isOverridden 
+                                                ? 'bg-blue-50/40 hover:bg-blue-50/60'
                                                 : isHighRisk 
-                                                ? 'border-l-2 border-l-rose-500 bg-gradient-to-r from-rose-50/80 via-rose-50/30 to-transparent hover:from-rose-100/70'
+                                                ? 'bg-rose-50/30 hover:bg-rose-50/50'
                                                 : isReview
-                                                ? 'border-l-2 border-l-amber-400/80 bg-amber-50/20 hover:bg-amber-50/40'
-                                                : 'border-l-2 border-l-transparent hover:bg-slate-50/70'
+                                                ? 'bg-amber-50/20 hover:bg-amber-50/30'
+                                                : 'hover:bg-slate-50/70'
                                         }`}
                                     >
-                                        <td className="py-2.5 px-3 font-mono font-black text-indigo-600 tracking-tight align-middle">
-                                            <div className="flex items-center gap-1.5">
-                                                <AgentAvatar size="xs" variant="indigo" />
-                                                <span>{call.id}</span>
-                                            </div>
+                                        <td className="py-2.5 px-3 font-mono font-black tracking-tight align-middle">
+                                            <span className={isOverridden ? 'text-blue-900 font-bold' : 'text-blue-600'}>{call.id}</span>
                                         </td>
                                         <td className="py-2.5 px-3 font-mono font-semibold text-slate-900 tabular-nums">{call.caller || call.maskedId}</td>
                                         <td className="py-2.5 px-3">
@@ -98,7 +94,7 @@ export const DataTables = ({ onCardClick, onToast }) => {
                                         </td>
                                         <td className="py-2.5 px-3 text-slate-600 font-medium">
                                             <span className="flex items-center gap-1">
-                                                <MapPin className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                                <MapPin className="w-3 h-3 text-blue-500 flex-shrink-0" />
                                                 {call.location}
                                             </span>
                                         </td>
@@ -109,42 +105,76 @@ export const DataTables = ({ onCardClick, onToast }) => {
                                             </span>
                                         </td>
                                         <td className="py-2.5 px-3 align-middle">
-                                            {call.supervisorOverridden ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-amber-500 text-white shadow-xs">
-                                                    CONTROLLED
-                                                </span>
+                                            {isOverridden ? (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); openTakeoverModal(call.id); }}
+                                                    className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-mono font-bold bg-blue-100/90 hover:bg-blue-200/90 text-blue-900 border border-blue-300 shadow-xs ring-1 ring-blue-400/20 cursor-pointer transition-all active:scale-95"
+                                                    title="Open Supervisor Command Modal"
+                                                >
+                                                    <span className="relative flex h-1.5 w-1.5">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-600"></span>
+                                                    </span>
+                                                    <span>Supervisor Active</span>
+                                                </button>
                                             ) : isHighRisk ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-rose-600 text-white shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-rose-600 text-white shadow-xs">
                                                     CRITICAL
                                                 </span>
                                             ) : isReview ? (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-amber-50 text-amber-700 border border-amber-200 shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 shadow-xs">
                                                     REVIEW
                                                 </span>
                                             ) : (
-                                                <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
+                                                <span className="inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 shadow-xs">
                                                     STABLE
                                                 </span>
                                             )}
                                         </td>
                                         <td className="py-2.5 px-3 text-right">
-                                            <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    onClick={() => onToast && onToast(`Patched in to audio feed ${call.id}`, 'listen')}
-                                                    className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold transition-colors shadow-2xs"
-                                                    title="Monitor Audio"
-                                                >
-                                                    <Headphones className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        takeOverCall(call.id);
-                                                        if (onToast) onToast(`Supervisor took over ${call.id}`, 'zap');
-                                                    }}
-                                                    className="py-1 px-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-mono font-bold text-[11px] transition-all flex items-center gap-1 shadow-xs hover:shadow-sm"
-                                                >
-                                                    <Zap className="w-2.5 h-2.5" /> Take Over
-                                                </button>
+                                            <div className="inline-flex items-center justify-end p-1 rounded-xl bg-slate-100/90 border border-slate-200/90 shadow-2xs gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                {/* Unified Secondary Utility Controls Dock */}
+                                                <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200/80">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); onCardClick && onCardClick('active-calls', e); }}
+                                                        className="group/btn p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition-all duration-200 active:scale-95 shadow-none hover:shadow-2xs"
+                                                        title="Expand Channel Details"
+                                                    >
+                                                        <Maximize2 className="w-3.5 h-3.5 transition-transform duration-200 group-hover/btn:scale-110" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); onToast && onToast(`Patched into audio feed ${call.id}`, 'listen'); }}
+                                                        className="group/btn p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-white transition-all duration-200 active:scale-95 shadow-none hover:shadow-2xs"
+                                                        title="Listen-In Live Audio"
+                                                    >
+                                                        <Headphones className="w-3.5 h-3.5 transition-transform duration-200 group-hover/btn:scale-110" />
+                                                    </button>
+                                                </div>
+
+                                                {/* Primary Action Button (Single Line Guarantee) */}
+                                                {isOverridden ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            releaseCallToAi(call.id);
+                                                            if (onToast) onToast(`Released ${call.id} back to AI`, 'check');
+                                                        }}
+                                                        className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
+                                                    >
+                                                        Release AI
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            takeOverCall(call.id);
+                                                            if (onToast) onToast(`Supervisor took over ${call.id}`, 'phone');
+                                                        }}
+                                                        className="whitespace-nowrap min-w-[5.5rem] px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:scale-95 active:translate-y-0.5 text-white font-mono font-bold text-xs tracking-wide transition-all duration-200 shadow-xs hover:shadow-sm hover:brightness-105 flex items-center justify-center shrink-0 select-none"
+                                                    >
+                                                        Take Over
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -156,10 +186,7 @@ export const DataTables = ({ onCardClick, onToast }) => {
             </div>
 
             {/* Right Col: Regional Tactical Geo-Lock & Response Units */}
-            <div 
-                onClick={(e) => onCardClick && onCardClick('risk-override', e)}
-                className="glass-surface rounded-2xl p-6 flex flex-col justify-between cursor-pointer group"
-            >
+            <div className="glass-surface rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5 font-mono">
@@ -171,7 +198,7 @@ export const DataTables = ({ onCardClick, onToast }) => {
 
                     {/* Radar Visualizer */}
                     <div className="h-32 rounded-xl bg-slate-50 border border-slate-200/90 my-2 flex items-center justify-center relative overflow-hidden">
-                        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#6366F1_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#0284C7_1px,transparent_1px)] [background-size:16px_16px]"></div>
                         <div className="relative flex items-center justify-center">
                             <div className="w-12 h-12 rounded-full bg-rose-500/15 absolute"></div>
                             <div className="w-6 h-6 rounded-full bg-rose-600 border-2 border-white shadow-md flex items-center justify-center text-white text-[9px] font-bold">
@@ -200,8 +227,11 @@ export const DataTables = ({ onCardClick, onToast }) => {
                 </div>
 
                 <button 
-                    onClick={() => onToast && onToast('Opening emergency GPS coordinates in Tactical Maps', 'map')}
-                    className="w-full mt-4 py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-colors border border-indigo-200/80 flex items-center justify-center gap-1.5"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (onToast) onToast('Tactical GPS tracking Sector 18 coordinates', 'map');
+                    }}
+                    className="w-full mt-4 py-2 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-colors border border-blue-200/80 flex items-center justify-center gap-1.5"
                 >
                     <Compass className="w-3.5 h-3.5" />
                     Open Tactical Maps

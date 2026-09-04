@@ -3,10 +3,10 @@ import { History, Search, Play, Pause, Download, MapPin, Clock } from 'lucide-re
 
 const HISTORICAL_CALLS = [
     { callId: 'C-1021', time: '11:42 AM', caller: '+91 98110-XXXXX', location: 'Sector 18, Noida', incident: 'Road Traffic Collision', duration: '03:42', lang: 'Hinglish', risk: 'HIGH', status: 'In Progress', statusColor: 'text-amber-700 bg-amber-50 border-amber-200', summary: 'Collision between two motor vehicles near metro pillar 42. Dispatched medical squad.' },
-    { callId: 'C-1020', time: '11:15 AM', caller: '+91 97123-XXXXX', location: 'Vasant Kunj, Delhi', incident: 'Medical Advice / Dehydration', duration: '01:54', lang: 'English', risk: 'LOW', status: 'AI Resolved', statusColor: 'text-emerald-700 bg-emerald-50 border-emerald-200', summary: 'Caller felt dizzy during morning jog. AI completed symptom triage and confirmed stable vitals.' },
+    { callId: 'C-1020', time: '11:15 AM', caller: '+91 97123-XXXXX', location: 'Vasant Kunj, Delhi', incident: 'Medical Advice / Dehydration', duration: '01:54', lang: 'English', risk: 'LOW', status: 'AI Resolved', statusColor: 'text-blue-700 bg-blue-50 border-blue-200', summary: 'Caller felt dizzy during morning jog. AI completed symptom triage and confirmed stable vitals.' },
     { callId: 'C-1019', time: '10:48 AM', caller: '+91 98450-XXXXX', location: 'Cyber Hub, Gurugram', incident: 'Commercial Kitchen Fire', duration: '04:12', lang: 'Hinglish', risk: 'MEDIUM', status: 'Handed Over', statusColor: 'text-indigo-700 bg-indigo-50 border-indigo-200', summary: 'Small fryer fire in restaurant kitchen. AI obtained location and handed line to supervisor.' },
     { callId: 'C-1018', time: '10:05 AM', caller: '+91 99231-XXXXX', location: 'Atta Market, Noida', incident: 'Domestic LPG Gas Leak', duration: '02:30', lang: 'Hindi', risk: 'HIGH', status: 'Dispatched', statusColor: 'text-rose-700 bg-rose-50 border-rose-200', summary: 'Gas pipeline leak reported. Rapid response unit dispatched within 90 seconds.' },
-    { callId: 'C-1017', time: '09:22 AM', caller: '+91 93100-XXXXX', location: 'Rajouri Garden, Delhi', incident: 'Pedestrian Slip & Fall', duration: '01:15', lang: 'Hinglish', risk: 'LOW', status: 'AI Resolved', statusColor: 'text-emerald-700 bg-emerald-50 border-emerald-200', summary: 'Elderly caller slipped on wet pavement. Minor bruise, refused ambulance transport.' },
+    { callId: 'C-1017', time: '09:22 AM', caller: '+91 93100-XXXXX', location: 'Rajouri Garden, Delhi', incident: 'Pedestrian Slip & Fall', duration: '01:15', lang: 'Hinglish', risk: 'LOW', status: 'AI Resolved', statusColor: 'text-blue-700 bg-blue-50 border-blue-200', summary: 'Elderly caller slipped on wet pavement. Minor bruise, refused ambulance transport.' },
     { callId: 'C-1016', time: '08:50 AM', caller: '+91 98199-XXXXX', location: 'Noida Expressway', incident: 'Multi-Vehicle Pileup', duration: '06:40', lang: 'Hinglish', risk: 'HIGH', status: 'Dispatched', statusColor: 'text-rose-700 bg-rose-50 border-rose-200', summary: 'Fog-related pileup involving 3 trucks and 2 cars. 4 Trauma units mobilized.' }
 ];
 
@@ -16,8 +16,56 @@ export const CallHistoryView = ({ onToast }) => {
     const [playingId, setPlayingId] = useState(null);
 
     const togglePlay = (id) => {
-        setPlayingId(prev => (prev === id ? null : id));
-        if (onToast) onToast(`${playingId === id ? 'Paused' : 'Playing'} archived Opus 24kHz stream for ${id}`, playingId === id ? 'pause' : 'play');
+        if (playingId === id) {
+            setPlayingId(null);
+            if (onToast) onToast(`Paused archived stream for ${id}`, 'pause');
+        } else {
+            setPlayingId(id);
+            if (onToast) onToast(`Playing archived Opus 24kHz stream for ${id}`, 'play');
+            // Synthesize subtle mock radio tone via Web Audio API
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, ctx.currentTime);
+                gain.gain.setValueAtTime(0.04, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.6);
+            } catch {
+                // AudioContext fallback
+            }
+        }
+    };
+
+    const handleExportAudit = () => {
+        const headers = ["Call ID", "Time", "Caller", "Location", "Incident", "Duration", "Language", "Risk", "Status", "Summary"];
+        const rows = filtered.map(c => [
+            c.callId,
+            `"${c.time}"`,
+            `"${c.caller}"`,
+            `"${c.location}"`,
+            `"${c.incident}"`,
+            `"${c.duration}"`,
+            `"${c.lang}"`,
+            `"${c.risk}"`,
+            `"${c.status}"`,
+            `"${c.summary.replace(/"/g, '""')}"`
+        ]);
+
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `rescuro_incident_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        if (onToast) onToast('Compiled and downloaded formatted 24h CSV audit report', 'download');
     };
 
     const filtered = HISTORICAL_CALLS.filter(c => 
@@ -57,8 +105,8 @@ export const CallHistoryView = ({ onToast }) => {
                         ))}
                     </div>
                     <button
-                        onClick={() => onToast && onToast('Exported complete 24h CSV audit logs', 'download')}
-                        className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs flex items-center gap-1 transition-all"
+                        onClick={handleExportAudit}
+                        className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-mono font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                     >
                         <Download className="w-3.5 h-3.5" /> Export Audit
                     </button>
@@ -98,15 +146,15 @@ export const CallHistoryView = ({ onToast }) => {
                                     </td>
                                     <td className="py-3.5 px-4 font-mono text-slate-500">{row.duration}</td>
                                     <td className="py-3.5 px-4 align-middle">
-                                        <span className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold tracking-wide shadow-xs ${
+                                        <span className={`inline-flex items-center justify-center rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider shadow-xs ${
                                             row.risk === 'HIGH' ? 'bg-rose-600 text-white' :
-                                            row.risk === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                            row.risk === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                                         }`}>
                                             {row.risk === 'HIGH' ? 'CRITICAL' : row.risk === 'MEDIUM' ? 'REVIEW' : 'STABLE'}
                                         </span>
                                     </td>
                                     <td className="py-3.5 px-4 align-middle">
-                                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${row.statusColor}`}>
+                                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase border ${row.statusColor}`}>
                                             {row.status}
                                         </span>
                                     </td>

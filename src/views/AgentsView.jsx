@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Bot, Terminal, Tag, CheckCircle2, Zap, Sparkles } from 'lucide-react';
+import { Terminal, Tag, CheckCircle2, Activity, Layers } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
-import { AgentAvatar } from '../components/AgentAvatar';
 
 const SLOT_MODELS = [
     { slot: 'Geo-Location Extraction', model: 'Deepgram NER + GeoCoder v4', accuracy: 99.4, latency: '12ms', engine: 'Agora WebRTC Voice' },
@@ -45,64 +44,80 @@ export const AgentsView = () => {
 
     return (
         <div className="space-y-4">
-            {/* 1. Exactly 4 Horizontal Agent Cards Across Top (Compact & Sleek) */}
+            {/* 1. Exactly 4 Horizontal Agent Cards Across Top (Spacious & Clean CAD Architecture) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {agents.map(agent => {
                     const isSelected = selectedAgent.id === agent.id;
+                    const isGuarded = agent.mode === 'Supervisor Guarded';
                     return (
                         <div
                             key={agent.id}
                             onClick={() => setSelectedAgentId(agent.id)}
-                            className={`group relative rounded-2xl p-4 cursor-pointer transition-all duration-200 backdrop-blur-2xl border ${
+                            className={`group relative rounded-2xl p-5 cursor-pointer transition-all duration-200 backdrop-blur-2xl border flex flex-col justify-between h-full min-h-[205px] ${
                                 isSelected
-                                    ? 'bg-white/85 border-indigo-500 shadow-[0_8px_30px_rgba(99,102,241,0.12)]'
-                                    : 'bg-white/65 border-white/90 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:bg-white/75 hover:border-white hover:-translate-y-0.5'
+                                    ? 'bg-white/95 border-blue-500 shadow-md ring-2 ring-blue-500/20 -translate-y-0.5'
+                                    : 'bg-white/80 border-white/90 shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:bg-white hover:border-slate-200 hover:-translate-y-0.5'
                             }`}
                         >
-                            {/* Header: Avatar, Name, Status & Mode Controller */}
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-2.5">
-                                    <AgentAvatar 
-                                        size="md" 
-                                        variant={isSelected ? 'indigo' : 'white'} 
-                                        showStatus={true} 
-                                        className="group-hover:scale-105 transition-transform" 
-                                    />
-                                    <div className="min-w-0">
-                                        <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-snug truncate">{agent.name}</h4>
-                                        <span className="text-[10px] font-mono font-semibold text-emerald-600 flex items-center gap-1 mt-0.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
+                            {/* Card Top Section: Status & Dedicated Mode Button */}
+                            <div>
+                                <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100">
+                                    <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-emerald-600">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                        </span>
+                                        <span className="tracking-wide text-emerald-700">ONLINE</span>
+                                    </div>
+
+                                    {/* Dispatch Mode Button with Generous Spacing and Tactile Styling */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleAgentMode(agent.id);
+                                        }}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold border transition-all flex items-center gap-1.5 shadow-2xs whitespace-nowrap cursor-pointer select-none active:scale-95 ${
+                                            isGuarded
+                                                ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/90 ring-1 ring-amber-400/20'
+                                                : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100/90'
+                                        }`}
+                                        title="Click to toggle operational dispatch mode"
+                                    >
+                                        <Activity className={`w-3 h-3 ${isGuarded ? 'text-amber-600' : 'text-blue-600'}`} />
+                                        <span>{agent.mode}</span>
+                                    </button>
+                                </div>
+
+                                {/* Agent Identity & Specialization */}
+                                <div className="flex items-start gap-3">
+                                    <div className="relative w-10 h-10 rounded-xl bg-gradient-to-b from-white/95 to-blue-50/60 border border-white shadow-xs flex items-center justify-center p-1 flex-shrink-0 group-hover:scale-105 transition-transform">
+                                        <img 
+                                            src="/assets/agent-orb.png" 
+                                            alt={agent.name} 
+                                            className="w-full h-full object-contain filter drop-shadow-[0_2px_8px_rgba(56,189,248,0.22)] select-none"
+                                        />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-snug truncate">
+                                            {agent.name}
+                                        </h4>
+                                        <span className="text-[10px] font-mono text-blue-600 font-semibold block mt-0.5">
+                                            {agent.ttsVoice.split(' ')[0]} AI • {agent.supportedLangs[0]}
                                         </span>
                                     </div>
                                 </div>
-
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleAgentMode(agent.id);
-                                    }}
-                                    className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border transition-all flex items-center gap-1 shadow-2xs ${
-                                        agent.mode === 'Autonomous' 
-                                            ? 'bg-indigo-50/90 text-indigo-700 border-indigo-200/80 hover:bg-indigo-100' 
-                                            : 'bg-amber-50/90 text-amber-700 border-amber-200/80 hover:bg-amber-100'
-                                    }`}
-                                >
-                                    <Zap className="w-3 h-3" /> {agent.mode}
-                                </button>
+                                <p className="text-[11px] text-slate-500 font-medium mt-2.5 leading-relaxed min-h-[34px] line-clamp-2">
+                                    {agent.role}
+                                </p>
                             </div>
 
-                            {/* Role Descriptor */}
-                            <p className="text-[11px] text-slate-500 font-medium mt-2 truncate">
-                                {agent.role}
-                            </p>
-
-                            {/* Telemetry Micro-Readout */}
-                            <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100/80 text-[11px] font-mono">
+                            {/* Telemetry Micro-Readout Footer */}
+                            <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-[11px] font-mono">
                                 <span className="text-slate-500">
-                                    Latency: <strong className="text-indigo-600 font-bold">{agent.latency}</strong>
+                                    Latency: <strong className="text-slate-800 font-bold">{agent.latency}</strong>
                                 </span>
                                 <span className="text-slate-500">
-                                    Acc: <strong className="text-emerald-600 font-bold">{agent.accuracy}</strong>
+                                    Acc: <strong className="text-blue-600 font-bold">{agent.accuracy}</strong>
                                 </span>
                             </div>
                         </div>
@@ -117,7 +132,13 @@ export const AgentsView = () => {
                 <div className="bg-white/65 backdrop-blur-2xl border border-white/90 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl p-4 flex flex-col space-y-3">
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-100/80">
                         <div className="flex items-center gap-2.5">
-                            <AgentAvatar size="sm" variant="indigo" />
+                            <div className="relative w-8 h-8 rounded-full bg-gradient-to-b from-white/95 to-blue-50/60 border border-white shadow-xs flex items-center justify-center p-0.5 flex-shrink-0">
+                                <img 
+                                    src="/assets/agent-orb.png" 
+                                    alt={selectedAgent.name} 
+                                    className="w-full h-full object-contain filter drop-shadow-[0_2px_6px_rgba(56,189,248,0.22)] select-none"
+                                />
+                            </div>
                             <div>
                                 <h4 className="text-xs font-bold text-slate-900 font-mono uppercase tracking-wider leading-none">
                                     System Triage Prompt • {selectedAgent.name}
@@ -144,7 +165,7 @@ export const AgentsView = () => {
                     <div className="space-y-2 pt-0.5 mt-auto">
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-[10px] font-mono uppercase font-bold text-slate-400 mr-1 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-indigo-500" /> Slots:
+                                <Layers className="w-3 h-3 text-indigo-500" /> Slots:
                             </span>
                             {PROMPT_VARIABLES.map(v => (
                                 <button
@@ -164,69 +185,93 @@ export const AgentsView = () => {
                                 onClick={handleDeploy}
                                 className={`py-1.5 px-3 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 ${
                                     isSaved 
-                                        ? 'bg-emerald-600 text-white shadow-emerald-500/20' 
+                                        ? 'bg-blue-600 text-white shadow-blue-500/20' 
                                         : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
                                 }`}
                             >
-                                {isSaved ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+                                {isSaved ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
                                 {isSaved ? 'Deployed' : 'Save Template'}
                             </button>
                         </div>
                     </div>
                 </div>
 
-                {/* Bottom-Right: Active Slot-Filling Modules (Compact Density) */}
-                <div className="bg-white/65 backdrop-blur-2xl border border-white/90 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl p-4 flex flex-col justify-between space-y-3">
-                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-100/80">
+                {/* Bottom-Right: Live Entity Extraction Pipeline Card */}
+                <div className="bg-white/80 backdrop-blur-xl border border-white/90 shadow-sm rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                    {/* Header */}
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-150">
                         <div className="flex items-center gap-2">
-                            <span className="p-1 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100/60">
-                                <Tag className="w-3.5 h-3.5" />
+                            <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100/60">
+                                <Layers className="w-3.5 h-3.5" />
                             </span>
                             <div>
                                 <h4 className="text-xs font-bold text-slate-900 font-mono uppercase tracking-wider leading-none">
-                                    Active Slot-Filling Models
+                                    Live Entity Extraction Pipeline
                                 </h4>
-                                <span className="text-[10px] font-mono text-slate-400">Deepgram NER &amp; Agora ANS Sync</span>
+                                <span className="text-[10px] font-mono text-slate-400">Continuous Multi-Model Semantic Parser</span>
                             </div>
                         </div>
-                        <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50/90 px-2 py-0.5 rounded-full border border-emerald-200/70 flex items-center gap-1 shadow-2xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> 4 Models
+                        <span className="text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 flex items-center gap-1.5 shadow-2xs">
+                            <span className="relative flex h-1.5 w-1.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-indigo-600"></span>
+                            </span>
+                            4 Slots Active
                         </span>
                     </div>
 
+                    {/* Pipeline Rows with Clean Telemetry & High-Contrast Status Pills */}
                     <div className="space-y-2 flex-1">
-                        {SLOT_MODELS.map((slot, idx) => (
-                            <div key={idx} className="p-2.5 rounded-xl bg-white/75 backdrop-blur-md border border-white/90 shadow-[0_2px_6px_rgb(0,0,0,0.02)] space-y-1 transition-all hover:bg-white/95">
-                                <div className="flex items-center justify-between text-xs">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-slate-900 text-[11px]">{slot.slot}</span>
-                                        <span className="text-[10px] font-mono text-slate-400">• {slot.latency}</span>
+                        {SLOT_MODELS.map((slot, idx) => {
+                            const isOptimal = slot.accuracy >= 98.0;
+                            return (
+                                <div 
+                                    key={idx} 
+                                    className="p-3 rounded-xl bg-white/70 backdrop-blur-sm border border-slate-150/80 shadow-2xs hover:bg-white/95 hover:border-slate-200 transition-all flex items-center justify-between gap-3"
+                                >
+                                    {/* Left: Slot Name & Latency Badge, Clean Sub-Labels */}
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-slate-900 tracking-tight">
+                                                {slot.slot}
+                                            </span>
+                                            <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60">
+                                                {slot.latency}
+                                            </span>
+                                        </div>
+                                        <div className="text-[10px] font-mono text-slate-400 truncate mt-0.5">
+                                            <span>{slot.model}</span>
+                                            <span className="mx-1.5 text-slate-300">•</span>
+                                            <span className="text-slate-500 font-medium">{slot.engine}</span>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5 font-mono">
-                                        <span className="font-black text-emerald-600 text-xs">{slot.accuracy}%</span>
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+
+                                    {/* Right: Soft, High-Contrast Status Pill (Emerald for >98%, Amber for Reviewing) */}
+                                    <div className="flex-shrink-0">
+                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold border shadow-2xs ${
+                                            isOptimal
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/90'
+                                                : 'bg-amber-50 text-amber-800 border-amber-200/90'
+                                        }`}>
+                                            <CheckCircle2 className={`w-3 h-3 ${isOptimal ? 'text-emerald-600' : 'text-amber-600'}`} />
+                                            <span>{slot.accuracy}%</span>
+                                            <span className="text-[9px] uppercase font-semibold opacity-80">
+                                                {isOptimal ? 'Optimal' : 'Review'}
+                                            </span>
+                                        </span>
                                     </div>
                                 </div>
-
-                                {/* Micro-Progress Tracker Bar */}
-                                <div className="w-full bg-slate-100/90 h-1 rounded-full overflow-hidden">
-                                    <div 
-                                        className="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-emerald-500 rounded-full"
-                                        style={{ width: `${slot.accuracy}%` }}
-                                    />
-                                </div>
-
-                                <div className="flex justify-between items-center text-[9px] font-mono text-slate-400">
-                                    <span>{slot.model}</span>
-                                    <span className="text-indigo-600 font-medium">{slot.engine}</span>
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
-                    <div className="p-2 rounded-xl bg-indigo-50/60 border border-indigo-100/80 text-[10px] font-mono text-indigo-700 flex items-center justify-between">
-                        <span>Agora RTC Sync:</span>
-                        <strong className="font-bold text-indigo-900">Synchronized (0.0ms Jitter)</strong>
+                    {/* Footer Sync Telemetry */}
+                    <div className="p-2.5 rounded-xl bg-indigo-50/50 border border-indigo-100/80 text-[10px] font-mono text-indigo-700 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+                            Agora RTC Neural Audio Sync:
+                        </span>
+                        <strong className="font-bold text-indigo-900">Locked (0.0ms Jitter)</strong>
                     </div>
                 </div>
 

@@ -7,10 +7,10 @@ export const PipelineTelemetryWidget = () => {
 
     const pipelineStages = [
         { stage: "Carrier Ingestion (Twilio)", ms: latencies[0] || 12, pct: 6, color: "bg-slate-400", desc: "SIP trunk negotiation" },
-        { stage: "Audio Pre-Processing (Agora ANS)", ms: latencies[1] || 8, pct: 4, color: "bg-emerald-500", desc: "Acoustic noise filter" },
-        { stage: "Speech-to-Text (Deepgram Nova-2)", ms: latencies[2] || 45, pct: 21, color: "bg-indigo-500", desc: "Real-time bilingual streaming" },
-        { stage: "Emergency Triage (LLM Reasoner)", ms: latencies[3] || 120, pct: 54, color: "bg-violet-600", desc: "Slot extraction & risk score" },
-        { stage: "Voice Synthesis (ElevenLabs TTS)", ms: latencies[4] || 32, pct: 15, color: "bg-emerald-600", desc: "Low-latency neural audio" },
+        { stage: "Audio Pre-Processing (Agora ANS)", ms: latencies[1] || 8, pct: 4, color: "bg-sky-400", desc: "Acoustic noise filter" },
+        { stage: "Speech-to-Text (Deepgram Nova-2)", ms: latencies[2] || 45, pct: 21, color: "bg-blue-400", desc: "Real-time bilingual streaming" },
+        { stage: "Emergency Triage (LLM Reasoner)", ms: latencies[3] || 120, pct: 54, color: "bg-blue-600", desc: "Slot extraction & risk score" },
+        { stage: "Voice Synthesis (ElevenLabs TTS)", ms: latencies[4] || 32, pct: 15, color: "bg-sky-500", desc: "Low-latency neural audio" },
     ];
 
     const totalLatency = latencies.reduce((a, b) => a + b, 0);
@@ -22,7 +22,7 @@ export const PipelineTelemetryWidget = () => {
                     <Activity className="w-4 h-4 text-indigo-600" />
                     <span>End-to-End Pipeline Telemetry &amp; Jitter</span>
                 </h4>
-                <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-100">
                     Total: {totalLatency}ms Round-Trip
                 </span>
             </div>
@@ -46,7 +46,7 @@ export const PipelineTelemetryWidget = () => {
             <div className="grid grid-cols-3 gap-3 pt-2">
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <span className="block text-[10px] uppercase font-bold text-slate-400">STT Accuracy</span>
-                    <span className="text-sm font-bold font-mono text-emerald-600">99.2%</span>
+                    <span className="text-sm font-bold font-mono text-blue-600">99.2%</span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <span className="block text-[10px] uppercase font-bold text-slate-400">Packet Loss</span>

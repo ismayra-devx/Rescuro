@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RESCURO — AI Emergency Command Center</title>
-    <meta name="description" content="Real-time AI voice triage, telemetry inspection, and emergency monitoring command center">
+    <title>RESCURO - Emergency Operations Command Center</title>
+    <meta name="description" content="Real-time voice triage, telemetry inspection, and emergency monitoring command center">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,12 +18,64 @@
             theme: {
                 extend: {
                     colors: {
+                        indigo: {
+                            50: '#F0F7FF',
+                            100: '#E0F0FE',
+                            200: '#BAE0FD',
+                            300: '#7CC5FB',
+                            400: '#38A7F8',
+                            500: '#0C87EB',
+                            600: '#0267D3',
+                            700: '#0252B0',
+                            800: '#064590',
+                            900: '#0B3B76',
+                            950: '#072650',
+                        },
                         brand: {
-                            50: '#EEF2FF',
-                            100: '#E0E7FF',
-                            500: '#6366F1',
-                            600: '#4F46E5',
-                            700: '#4338CA',
+                            50: '#F0F7FF',
+                            100: '#E0F0FE',
+                            500: '#0C87EB',
+                            600: '#0267D3',
+                            700: '#0252B0',
+                        },
+                        emerald: {
+                            50: '#F0F9FF',
+                            100: '#E0F2FE',
+                            200: '#BAE6FD',
+                            300: '#7DD3FC',
+                            400: '#38BDF8',
+                            500: '#0EA5E9',
+                            600: '#0284C7',
+                            700: '#0369A1',
+                            800: '#075985',
+                            900: '#0C4A6E',
+                            950: '#082F49',
+                        },
+                        teal: {
+                            50: '#F0F9FF',
+                            100: '#E0F2FE',
+                            200: '#BAE6FD',
+                            300: '#7DD3FC',
+                            400: '#38BDF8',
+                            500: '#0EA5E9',
+                            600: '#0284C7',
+                            700: '#0369A1',
+                            800: '#075985',
+                            900: '#0C4A6E',
+                            950: '#082F49',
+                        },
+                        green: {
+                            50: '#F0F9FF',
+                            100: '#E0F2FE',
+                            200: '#BAE6FD',
+                            300: '#7DD3FC',
+                            400: '#38BDF8',
+                            500: '#0EA5E9',
+                            600: '#0284C7',
+                            700: '#0369A1',
+                            800: '#075985',
+                            900: '#0C4A6E',
+                            950: '#082F49',
                         }
                     },
                     fontFamily: {
@@ -35,13 +87,7 @@
         }
     </script>
 </head>
-<body class="bg-[#F0F4F8] text-slate-800 antialiased min-h-screen selection:bg-indigo-100 selection:text-indigo-900 relative overflow-x-hidden">
-
-    <!-- Dynamic Organic Gradient Mesh Orbs (Floating Lavender, Electric Cyan, Soft Rose) -->
-    <div class="ambient-mesh-lavender"></div>
-    <div class="ambient-mesh-cyan"></div>
-    <div class="ambient-mesh-rose"></div>
-    <div class="ambient-mesh-indigo"></div>
+<body class="text-slate-800 antialiased min-h-screen selection:bg-blue-100 selection:text-blue-900 relative overflow-x-hidden">
 
     <!-- Root Container for React App -->
     <div id="root" class="relative z-10"></div>

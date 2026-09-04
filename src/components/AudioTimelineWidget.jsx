@@ -75,7 +75,7 @@ export const AudioTimelineWidget = ({ onToast }) => {
                                 key={i} 
                                 className={`flex-1 rounded-xs transition-all duration-100 ${
                                     isPassed 
-                                        ? 'bg-gradient-to-t from-indigo-600 to-violet-500' 
+                                        ? 'bg-gradient-to-t from-indigo-600 to-blue-500' 
                                         : 'bg-slate-200'
                                 }`}
                                 style={{ 
@@ -115,7 +115,7 @@ export const AudioTimelineWidget = ({ onToast }) => {
                         }}
                     >
                         <div 
-                            className="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 rounded-full relative transition-all duration-75"
+                            className="h-full bg-indigo-600 rounded-full relative transition-all duration-75"
                             style={{ width: `${playbackProgress}%` }}
                         >
                             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-full shadow-md scale-0 group-hover:scale-100 transition-transform"/>
@@ -130,7 +130,7 @@ export const AudioTimelineWidget = ({ onToast }) => {
                 {/* Multipliers & Status */}
                 <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                     <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
                         Codec: Opus 24kHz • ANS AI Filter {audioChannel === 'denoised' ? 'ON' : 'BYPASS'}
                     </span>
                     <div className="flex items-center gap-1">
