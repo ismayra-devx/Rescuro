@@ -85,8 +85,12 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange, onToast }) => {
             {/* 1. Executive Brand Header: Sleek Wordmark & Rescue Icon */}
             <div className="px-5 py-4 border-b border-slate-100/80 flex items-center bg-white/40">
                 <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/25 flex-shrink-0">
-                        <Radio className="w-4 h-4" />
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center p-1.5 shadow-md shadow-blue-600/25 flex-shrink-0">
+                        <img 
+                            src="/assets/logo-white.png" 
+                            alt="RESCURO Logo" 
+                            className="w-full h-full object-contain select-none filter drop-shadow-xs"
+                        />
                     </div>
                     <span className="font-extrabold text-base tracking-tight text-slate-900 font-sans">RESCURO</span>
                 </div>
