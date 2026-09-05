@@ -21,3 +21,14 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=True
     )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://rescuro-frontend.onrender.com",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
