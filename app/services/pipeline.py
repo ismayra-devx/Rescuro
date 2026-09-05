@@ -115,6 +115,11 @@ async def run_orchestrator(
 # 3. Text-to-Speech (TTS) Stage
 # ==============================================================================
 
+from app.services.tts_service import TTSService
+
+_tts_service = TTSService()
+
+
 async def synthesize_speech(
     response_text: str,
     voice_id: Optional[str] = None,
@@ -123,23 +128,11 @@ async def synthesize_speech(
     """Synthesize verbal response text into audio bytes.
 
     Provider integration point:
-    When configured with a live provider (e.g. ElevenLabs, Cartesia, Google TTS, OpenAI TTS),
-    this invokes the provider's speech synthesis engine.
-
-    Currently operating in STUB mode: returns synthetic μ-law audio frames.
+    Synthesizes real audio using TTSService (Deepgram Aura / OpenAI / ElevenLabs)
+    or falls back to ITU-T G.711 μ-law generated tone if API keys are unconfigured.
     """
     logger.debug("Synthesizing speech for: '%s' (format=%s)", response_text[:50], output_format)
-
-    if settings.TTS_PROVIDER == "elevenlabs" and settings.ELEVENLABS_API_KEY:
-        # Placeholder for ElevenLabs streaming TTS
-        # TODO: Implement ElevenLabs client when API key is configured
-        pass
-
-    # Default Stub Behavior:
-    # Generate 160 bytes of standard silence/comfort noise in μ-law format (standard 8kHz frame)
-    # 0xFF in G.711 mu-law corresponds to digital silence (amplitude 0)
-    mock_audio = b"\xFF" * 320
-    return mock_audio
+    return await _tts_service.synthesize_audio(response_text)
 
 
 # ==============================================================================

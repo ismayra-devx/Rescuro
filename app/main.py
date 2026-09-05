@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db
-from app.api import auth, vobiz, dashboard_ws, user_call, calls
+from app.api import auth, vobiz, dashboard_ws, user_call, calls, exotel
 
 # Setup logging
 logging.basicConfig(
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     application.include_router(dashboard_ws.router)
     application.include_router(user_call.router)
     application.include_router(calls.router)
+    application.include_router(exotel.router)
 
     return application
 
