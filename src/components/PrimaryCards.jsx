@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { 
     PhoneCall, 
     AlertTriangle, 
@@ -369,10 +369,10 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                         <button
                             onClick={handleDispatch}
                             disabled={dispatched}
-                            className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-all ${
+                            className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all duration-200 backdrop-blur-sm ${
                                 dispatched 
-                                    ? 'bg-slate-800 text-white cursor-default' 
-                                    : 'bg-slate-900 hover:bg-slate-800 text-white'
+                                    ? 'bg-blue-50/40 text-blue-400 cursor-default border border-blue-300/40' 
+                                    : 'bg-white/30 hover:bg-white/50 text-blue-600 border border-blue-400/70 hover:border-blue-500 shadow-sm'
                             }`}
                         >
                             {dispatched ? (
@@ -395,3 +395,4 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
 };
 
 export default PrimaryCards;
+

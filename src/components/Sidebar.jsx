@@ -82,14 +82,14 @@ export const Sidebar = ({ activeTab = 'dashboard', onTabChange, onToast }) => {
 
     return (
         <aside className="fixed top-0 left-0 w-64 h-screen bg-white/75 backdrop-blur-2xl border-r border-white/90 shadow-[0_8px_30px_rgb(0,0,0,0.03)] flex flex-col z-40 transition-all">
-            {/* 1. Executive Brand Header: Sleek Wordmark & Rescue Icon */}
+            {/* 1. Executive Brand Header: 3D Crystal Logo & 'escuro' Wordmark */}
             <div className="px-5 py-4 border-b border-slate-100/80 flex items-center bg-white/40">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center p-1.5 shadow-md shadow-blue-600/25 flex-shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <div id="sidebar-brand-logo" className="w-8 h-8 flex items-center justify-center flex-shrink-0">
                         <img 
-                            src="/assets/logo-white.png" 
-                            alt="RESCURO Logo" 
-                            className="w-full h-full object-contain select-none filter drop-shadow-xs"
+                            src="/assets/logo-ir-transparent.png" 
+                            alt="Rescuro Logo" 
+                            className="w-full h-full object-contain select-none filter drop-shadow-[0_2px_8px_rgba(0,132,216,0.30)]"
                         />
                     </div>
                     <span className="font-extrabold text-base tracking-tight text-slate-900 font-sans">RESCURO</span>

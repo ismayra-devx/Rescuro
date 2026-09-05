@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ExpansionModal } from './components/ExpansionModal';
 import { TakeoverModal } from './components/TakeoverModal';
+import { useAuth } from './context/AuthContext';
 
 // Dedicated Page Views
 import { DashboardView } from './views/DashboardView';
@@ -11,9 +13,12 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { ActiveCallsView } from './views/ActiveCallsView';
 import { CallHistoryView } from './views/CallHistoryView';
 import { AlertsView } from './views/AlertsView';
+import { LoginView } from './views/LoginView';
 
-export const App = () => {
-    // Dynamic Active Tab State for Sidebar Routing
+// ── Authenticated Dashboard Shell ─────────────────────────────────────────────
+// Kept as a separate component so all hooks are always called at the same
+// render level (React Rules of Hooks compliance).
+const DashboardShell = () => {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [activeModalKey, setActiveModalKey] = useState(null);
     const [originRect, setOriginRect] = useState(null);
@@ -21,9 +26,7 @@ export const App = () => {
 
     // Card Click Handler with GSAP Card-to-Page Morphing Expansion
     const handleCardClick = (cardKey, e) => {
-        // Prevent trigger if clicking an internal button
         if (e.target.closest('button')) return;
-
         const cardEl = e.currentTarget;
         const rect = cardEl.getBoundingClientRect();
         setOriginRect(rect);
@@ -44,7 +47,6 @@ export const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Render active page view component
     const renderActiveView = () => {
         switch (activeTab) {
             case 'agents':
@@ -60,10 +62,10 @@ export const App = () => {
             case 'dashboard':
             default:
                 return (
-                    <DashboardView 
-                        onCardClick={handleCardClick} 
-                        wfHeights={wfHeights} 
-                        onToast={showToast} 
+                    <DashboardView
+                        onCardClick={handleCardClick}
+                        wfHeights={wfHeights}
+                        onToast={showToast}
                     />
                 );
         }
@@ -71,25 +73,17 @@ export const App = () => {
 
     return (
         <div className="flex min-h-screen relative z-10 font-sans selection:bg-indigo-100 selection:text-indigo-900">
-            {/* Fixed Navigation Sidebar with Dynamic View Routing */}
-            <Sidebar 
-                activeTab={activeTab} 
-                onTabChange={setActiveTab} 
-                onToast={showToast} 
+            <Sidebar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                onToast={showToast}
             />
-
-            {/* Main Content Area */}
             <main className="flex-1 ml-64 flex flex-col min-h-screen">
-                {/* Clean Sticky Top Header */}
                 <Header />
-
-                {/* Dynamic Page View Container */}
                 <div className="flex-1 p-8 space-y-6">
                     {renderActiveView()}
                 </div>
             </main>
-
-            {/* GSAP Physics-Based Expansion Modal Overlay */}
             {activeModalKey && (
                 <ExpansionModal
                     activeCardKey={activeModalKey}
@@ -98,9 +92,48 @@ export const App = () => {
                     onToast={showToast}
                 />
             )}
-
-            {/* High-Priority Human-in-the-Loop Takeover Modal */}
             <TakeoverModal onToast={showToast} />
+        </div>
+    );
+};
+
+// ── Root App: Auth gate ───────────────────────────────────────────────────────
+export const App = () => {
+    const { user } = useAuth();
+    const [isTransitioning, setIsTransitioning] = useState(false);
+
+    useEffect(() => {
+        if (!user?.authenticated) {
+            setIsTransitioning(false);
+        }
+    }, [user?.authenticated]);
+
+    return (
+        <div className="relative min-h-screen">
+            {(user?.authenticated || isTransitioning) && (
+                <motion.div
+                    key="dashboard"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.8, ease: "easeInOut" }}
+                >
+                    <DashboardShell />
+                </motion.div>
+            )}
+
+            <AnimatePresence>
+                {!user?.authenticated && (
+                    <motion.div
+                        key="login-view-wrapper"
+                        initial={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.35, ease: "easeInOut" }}
+                        className="fixed inset-0 z-50"
+                    >
+                        <LoginView onStartTransition={() => setIsTransitioning(true)} />
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

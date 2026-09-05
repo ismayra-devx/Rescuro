@@ -135,64 +135,19 @@ export const INITIAL_ALERTS_LIST = [
 
 export const INITIAL_AGENTS_LIST = [
     {
-        id: 'agent-nova',
-        name: 'Agent Nova-Triage',
-        role: 'Critical Trauma & Emergency Medical Triage',
-        engine: 'Deepgram Nova-2 + GPT-4o Realtime',
+        id: 'agent-core',
+        name: 'RESCURO Core — Unified Multilingual Agent',
+        role: 'Autonomous Emergency Medical Triage, Multi-Dialect Code-Switching & Hazard Dispatch',
+        engine: 'Deepgram Nova-2 + GPT-4o Realtime RTC',
         status: 'ONLINE',
         mode: 'Autonomous',
-        latency: '42ms',
+        latency: '34ms',
         accuracy: '99.4%',
-        activeCalls: 2,
-        totalCalls: 624,
-        ttsVoice: 'Jessica (Calm Clinical)',
-        supportedLangs: ['English', 'Hinglish', 'Hindi'],
-        gradient: 'from-indigo-600 to-blue-600'
-    },
-    {
-        id: 'agent-rhea',
-        name: 'Agent Rhea-Hindi',
-        role: 'Bilingual Regional Dispatch & Dialect Translation',
-        engine: 'Whisper Large-v3 + Agora ANS Multi-Band',
-        status: 'ONLINE',
-        mode: 'Autonomous',
-        latency: '58ms',
-        accuracy: '98.8%',
-        activeCalls: 1,
-        totalCalls: 489,
-        ttsVoice: 'Aditi (Bilingual Hindi-Eng)',
-        supportedLangs: ['Hindi', 'Hinglish', 'Bhojpuri'],
-        gradient: 'from-sky-500 to-blue-600'
-    },
-    {
-        id: 'agent-aegis',
-        name: 'Agent Aegis-Hazards',
-        role: 'Fire, Gas Leak & Structural Collapse Triage',
-        engine: 'Claude 3.5 Sonnet + Fast NER Geo-Extractor',
-        status: 'ONLINE',
-        mode: 'Supervisor Guarded',
-        latency: '64ms',
-        accuracy: '99.1%',
-        activeCalls: 2,
-        totalCalls: 215,
-        ttsVoice: 'Marcus (Authoritative Dispatch)',
-        supportedLangs: ['English', 'Hindi'],
-        gradient: 'from-amber-600 to-rose-600'
-    },
-    {
-        id: 'agent-echo',
-        name: 'Agent Echo-BLS',
-        role: 'Caller Guidance & Basic Life Support (BLS / CPR)',
-        engine: 'ElevenLabs Turbo v2.5 + Low-Jitter Stream',
-        status: 'ONLINE',
-        mode: 'Autonomous',
-        latency: '35ms',
-        accuracy: '99.6%',
-        activeCalls: 1,
-        totalCalls: 182,
-        ttsVoice: 'Elena (Empathetic De-escalator)',
-        supportedLangs: ['English', 'Hinglish'],
-        gradient: 'from-cyan-600 to-blue-600'
+        activeCalls: 6,
+        totalCalls: 1510,
+        ttsVoice: 'Aditi-Jessica Neural Hybrid',
+        supportedLangs: ['English', 'Hindi', 'Hinglish'],
+        gradient: 'from-indigo-600 via-blue-600 to-indigo-700'
     }
 ];
 
@@ -376,9 +331,9 @@ export const LiveStreamProvider = ({ children }) => {
         setAlerts(prev => prev.filter(a => a.id !== alertId));
     }, []);
 
-    const toggleAgentMode = useCallback((agentId) => {
+    const toggleAgentMode = useCallback((agentId = 'agent-core') => {
         setAgents(prev => prev.map(ag => {
-            if (ag.id === agentId) {
+            if (ag.id === agentId || ag.id === 'agent-core') {
                 return {
                     ...ag,
                     mode: ag.mode === 'Autonomous' ? 'Supervisor Guarded' : 'Autonomous'

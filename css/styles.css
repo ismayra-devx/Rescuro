@@ -182,3 +182,16 @@ body {
 .broadcast-active-pulse {
     animation: broadcastPulseWave 1.4s infinite cubic-bezier(0.4, 0, 0.6, 1);
 }
+
+/* ── Suppress browser native password reveal icons ───────────────────────── */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+    visibility: hidden;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+}

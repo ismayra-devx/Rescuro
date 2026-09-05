@@ -44,28 +44,44 @@ const PERMISSIONS = {
 
 const AuthContext = createContext(null);
 
+// ─── Hardcoded credential store (dev) ──────────────────────────────────────
+const VALID_CREDENTIALS = [
+    { username: 'jack harrison', password: '123@098', role: ROLES.SUPERVISOR, name: 'Jack Harrison', supervisorId: 'SUP-001', department: 'National Capital Region EMS' },
+];
+
 export const AuthProvider = ({ children }) => {
-    // Default to SUPERVISOR for full initial command center capability
-    const [currentRole, setCurrentRole] = useState(ROLES.SUPERVISOR);
+    const [currentRole, setCurrentRole] = useState(ROLES.GUEST);
     const [user, setUser] = useState({
-        id: 'user-004',
-        name: 'Ismayra Parveen',
-        supervisorId: 'SUP-004',
-        department: 'National Capital Region EMS',
-        token: 'jwt-sup-rescuro-valid-9021',
-        authenticated: true
+        id: null,
+        name: null,
+        supervisorId: null,
+        department: null,
+        token: null,
+        authenticated: false
     });
+
+    const login = (username, password) => {
+        const cred = VALID_CREDENTIALS.find(
+            c => c.username.toLowerCase() === username.trim().toLowerCase() && c.password === password
+        );
+        if (!cred) {
+            return { success: false, message: 'Invalid credentials. Access denied.' };
+        }
+        setCurrentRole(cred.role);
+        setUser({
+            id: 'user-001',
+            name: cred.name,
+            supervisorId: cred.supervisorId,
+            department: cred.department,
+            token: 'jwt-sup-rescuro-valid-9021',
+            authenticated: true
+        });
+        return { success: true };
+    };
 
     const switchRole = (newRole) => {
         if (ROLES[newRole]) {
             setCurrentRole(newRole);
-            setUser(prev => ({
-                ...prev,
-                name: newRole === ROLES.SUPERVISOR ? 'Ismayra Parveen' :
-                      newRole === ROLES.DISPATCHER ? 'Rahul Sharma' :
-                      newRole === ROLES.OPERATOR ? 'Ananya Roy' : 'Guest Observer',
-                supervisorId: newRole === ROLES.SUPERVISOR ? 'SUP-004' : null
-            }));
         }
     };
 
@@ -93,6 +109,7 @@ export const AuthProvider = ({ children }) => {
         <AuthContext.Provider value={{
             user,
             currentRole,
+            login,
             switchRole,
             logout,
             hasPermission,
