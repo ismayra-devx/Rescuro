@@ -96,11 +96,8 @@ export const Blob = ({ size = 260, speed = 9.5, className = "" }) => {
         }}
       />
 
-      <motion.div
+      <div
         className="blob-wrap"
-        initial={{ opacity: 0, scale: 0.88 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.19, 1, 0.22, 1] }}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
         <svg
@@ -118,15 +115,19 @@ export const Blob = ({ size = 260, speed = 9.5, className = "" }) => {
           <defs>
             <radialGradient id="blobFill" cx="34%" cy="26%" r="78%">
               <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="30%" stopColor="#f0f9ff" />
-              <stop offset="60%" stopColor="#bae6fd" />
-              <stop offset="100%" stopColor="#7dd3fc" />
+              <stop offset="32%" stopColor="#edf7fe" />
+              <stop offset="62%" stopColor="#c9e7fb" />
+              <stop offset="100%" stopColor="#9bd0f3" />
             </radialGradient>
           </defs>
 
-          <path ref={coreRef} fill="url(#blobFill)" />
+          <path
+            ref={coreRef}
+            d={smoothClosedPath(blobPoints(0, speed))}
+            fill="url(#blobFill)"
+          />
         </svg>
-      </motion.div>
+      </div>
     </div>
   );
 };
