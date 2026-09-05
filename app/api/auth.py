@@ -1,4 +1,4 @@
-"""Authentication routes for RESCURO: Signup, Login, and Token validation."""
+"""Authentication routes for RESCURO: Signup, Login, Me, and Token validation."""
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,9 +14,10 @@ security = HTTPBearer(auto_error=False)
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def signup(payload: UserCreate):
-    """Register a new dispatcher account and return an access token."""
+    """Register a new account and return an access token."""
     email = payload.email.strip().lower()
     hashed = hash_password(payload.password)
+    full_name = payload.full_name or email.split("@")[0].capitalize()
 
     conn = await get_db_connection()
     try:
@@ -29,23 +30,29 @@ async def signup(payload: UserCreate):
             )
 
         cursor = await conn.execute(
-            "INSERT INTO users (email, hashed_password, role) VALUES (?, ?, ?)",
-            (email, hashed, payload.role or "dispatcher")
+            "INSERT INTO users (email, hashed_password, full_name, role) VALUES (?, ?, ?, ?)",
+            (email, hashed, full_name, payload.role or "dispatcher")
         )
         await conn.commit()
         user_id = cursor.lastrowid
 
         # Fetch created user
-        cursor = await conn.execute("SELECT id, email, role, created_at FROM users WHERE id = ?", (user_id,))
+        cursor = await conn.execute("SELECT id, email, full_name, role, created_at FROM users WHERE id = ?", (user_id,))
         row = await cursor.fetchone()
         user_out = UserOut(
             id=row["id"],
             email=row["email"],
+            full_name=row["full_name"],
             role=row["role"],
             created_at=str(row["created_at"]) if row["created_at"] else None
         )
 
-        token = create_access_token({"sub": str(user_out.id), "email": user_out.email, "role": user_out.role})
+        token = create_access_token({
+            "sub": str(user_out.id),
+            "email": user_out.email,
+            "full_name": user_out.full_name,
+            "role": user_out.role
+        })
         return TokenResponse(access_token=token, token_type="bearer", user=user_out)
     finally:
         await conn.close()
@@ -53,13 +60,13 @@ async def signup(payload: UserCreate):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: UserLogin):
-    """Authenticate dispatcher credentials and issue an access token."""
+    """Authenticate credentials and issue an access token."""
     email = payload.email.strip().lower()
 
     conn = await get_db_connection()
     try:
         cursor = await conn.execute(
-            "SELECT id, email, hashed_password, role, created_at FROM users WHERE email = ?",
+            "SELECT id, email, hashed_password, full_name, role, created_at FROM users WHERE email = ?",
             (email,)
         )
         row = await cursor.fetchone()
@@ -72,11 +79,17 @@ async def login(payload: UserLogin):
         user_out = UserOut(
             id=row["id"],
             email=row["email"],
+            full_name=row["full_name"],
             role=row["role"],
             created_at=str(row["created_at"]) if row["created_at"] else None
         )
 
-        token = create_access_token({"sub": str(user_out.id), "email": user_out.email, "role": user_out.role})
+        token = create_access_token({
+            "sub": str(user_out.id),
+            "email": user_out.email,
+            "full_name": user_out.full_name,
+            "role": user_out.role
+        })
         return TokenResponse(access_token=token, token_type="bearer", user=user_out)
     finally:
         await conn.close()
@@ -100,18 +113,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user_id = int(payload["sub"])
     conn = await get_db_connection()
     try:
-        cursor = await conn.execute("SELECT id, email, role, created_at FROM users WHERE id = ?", (user_id,))
+        cursor = await conn.execute("SELECT id, email, full_name, role, created_at FROM users WHERE id = ?", (user_id,))
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found")
         return UserOut(
             id=row["id"],
             email=row["email"],
+            full_name=row["full_name"],
             role=row["role"],
             created_at=str(row["created_at"]) if row["created_at"] else None
         )
     finally:
         await conn.close()
+
+
+@router.get("/me", response_model=UserOut)
+async def get_me(current_user: UserOut = Depends(get_current_user)):
+    """Retrieve authenticated user's profile."""
+    return current_user
 
 
 async def authenticate_ws_token(token: str) -> UserOut:
@@ -125,13 +145,14 @@ async def authenticate_ws_token(token: str) -> UserOut:
     user_id = int(payload["sub"])
     conn = await get_db_connection()
     try:
-        cursor = await conn.execute("SELECT id, email, role, created_at FROM users WHERE id = ?", (user_id,))
+        cursor = await conn.execute("SELECT id, email, full_name, role, created_at FROM users WHERE id = ?", (user_id,))
         row = await cursor.fetchone()
         if not row:
             raise ValueError("User not found")
         return UserOut(
             id=row["id"],
             email=row["email"],
+            full_name=row["full_name"],
             role=row["role"],
             created_at=str(row["created_at"]) if row["created_at"] else None
         )

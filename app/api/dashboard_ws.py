@@ -135,8 +135,9 @@ async def dashboard_websocket(
         dashboard_manager.disconnect(websocket)
 
 
-# Also provide alias route for frontend compatibility if needed
+# Also provide alias routes for frontend compatibility and dashboard.html
 @router.websocket("/api/v1/stream/calls")
+@router.websocket("/ws/events")
 async def dashboard_stream_alias(
     websocket: WebSocket,
     token: Optional[str] = Query(None)

@@ -466,7 +466,10 @@
 
         function connect() {
           const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-          const wsUrl = `${protocol}//${window.location.host}/ws/events`;
+          const token = localStorage.getItem("rescuro_jwt") || localStorage.getItem("access_token") || "";
+          const wsUrl = token 
+            ? `${protocol}//${window.location.host}/ws/dashboard?token=${encodeURIComponent(token)}`
+            : `${protocol}//${window.location.host}/ws/dashboard`;
           
           setConnectionStatus("CONNECTING");
           const ws = new WebSocket(wsUrl);
@@ -474,7 +477,7 @@
 
           ws.onopen = () => {
             setConnectionStatus("CONNECTED");
-            console.log("[WebSocket] Connected to EchoSphere realtime events feed");
+            console.log("[WebSocket] Connected to RESCURO realtime events feed");
           };
 
           ws.onmessage = (event) => {
@@ -1026,7 +1029,7 @@
                 </div>
                 <div className="event-log">
                   {recentEvents.length === 0 ? (
-                    <div>[WAITING] Listening on /ws/events...</div>
+                    <div>[WAITING] Listening on /ws/dashboard...</div>
                   ) : (
                     recentEvents.map((ev, i) => (
                       <div key={i} className="event-log-entry">

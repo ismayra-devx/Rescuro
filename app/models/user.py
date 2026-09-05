@@ -11,6 +11,7 @@ class UserCreate(BaseModel):
     """User registration schema."""
     email: str = Field(..., description="Valid email address")
     password: str = Field(..., min_length=6, description="Password must be at least 6 characters")
+    full_name: Optional[str] = Field(None, description="User's full name")
     role: Optional[str] = "dispatcher"
 
     @field_validator("email")
@@ -37,6 +38,7 @@ class UserOut(BaseModel):
     """Public user response schema."""
     id: int
     email: str
+    full_name: Optional[str] = None
     role: str
     created_at: Optional[str] = None
 

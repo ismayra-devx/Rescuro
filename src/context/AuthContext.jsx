@@ -1,53 +1,73 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
+// ─── Operational Roles & Access Matrix ──────────────────────────────────────
 export const ROLES = {
-    SUPERVISOR: 'SUPERVISOR',
+    GUEST: 'GUEST',
+    FIELD_RESPONDER: 'FIELD_RESPONDER',
     DISPATCHER: 'DISPATCHER',
-    OPERATOR: 'OPERATOR',
-    GUEST: 'GUEST'
+    LEAD_DISPATCHER: 'LEAD_DISPATCHER',
+    SUPERVISOR: 'SUPERVISOR',
+    ADMIN: 'ADMIN'
 };
 
-const PERMISSIONS = {
-    [ROLES.SUPERVISOR]: {
-        canTakeover: true,
-        canWhisper: true,
-        canDispatch: true,
-        canMute: true,
+export const PERMISSIONS = {
+    [ROLES.GUEST]: {
+        canViewLiveDashboard: true,
+        canViewTranscripts: false,
+        canOverrideAI: false,
+        canAcknowledgeAlarms: false,
+        canDispatchUnits: false,
+        canViewTelemetry: false,
+        canViewQueue: false
+    },
+    [ROLES.FIELD_RESPONDER]: {
+        canViewLiveDashboard: true,
+        canViewTranscripts: true,
+        canOverrideAI: false,
+        canAcknowledgeAlarms: true,
+        canDispatchUnits: false,
         canViewTelemetry: true,
         canViewQueue: true
     },
     [ROLES.DISPATCHER]: {
-        canTakeover: false,
-        canWhisper: false,
-        canDispatch: true,
-        canMute: false,
+        canViewLiveDashboard: true,
+        canViewTranscripts: true,
+        canOverrideAI: false,
+        canAcknowledgeAlarms: true,
+        canDispatchUnits: true,
         canViewTelemetry: true,
         canViewQueue: true
     },
-    [ROLES.OPERATOR]: {
-        canTakeover: false,
-        canWhisper: false,
-        canDispatch: false,
-        canMute: false,
+    [ROLES.LEAD_DISPATCHER]: {
+        canViewLiveDashboard: true,
+        canViewTranscripts: true,
+        canOverrideAI: true,
+        canAcknowledgeAlarms: true,
+        canDispatchUnits: true,
         canViewTelemetry: true,
         canViewQueue: true
     },
-    [ROLES.GUEST]: {
-        canTakeover: false,
-        canWhisper: false,
-        canDispatch: false,
-        canMute: false,
+    [ROLES.SUPERVISOR]: {
+        canViewLiveDashboard: true,
+        canViewTranscripts: true,
+        canOverrideAI: true,
+        canAcknowledgeAlarms: true,
+        canDispatchUnits: true,
         canViewTelemetry: true,
-        canViewQueue: false
+        canViewQueue: true
+    },
+    [ROLES.ADMIN]: {
+        canViewLiveDashboard: true,
+        canViewTranscripts: true,
+        canOverrideAI: true,
+        canAcknowledgeAlarms: true,
+        canDispatchUnits: true,
+        canViewTelemetry: true,
+        canViewQueue: true
     }
 };
 
 const AuthContext = createContext(null);
-
-// ─── Hardcoded credential store (dev) ──────────────────────────────────────
-const VALID_CREDENTIALS = [
-    { username: 'jack harrison', password: '123@098', role: ROLES.SUPERVISOR, name: 'Jack Harrison', supervisorId: 'SUP-001', department: 'National Capital Region EMS' },
-];
 
 export const AuthProvider = ({ children }) => {
     const [currentRole, setCurrentRole] = useState(ROLES.GUEST);
@@ -60,23 +80,75 @@ export const AuthProvider = ({ children }) => {
         authenticated: false
     });
 
-    const login = (username, password) => {
-        const cred = VALID_CREDENTIALS.find(
-            c => c.username.toLowerCase() === username.trim().toLowerCase() && c.password === password
-        );
-        if (!cred) {
-            return { success: false, message: 'Invalid credentials. Access denied.' };
+    // Restore authenticated session from real backend token
+    useEffect(() => {
+        const storedToken = localStorage.getItem('rescuro_jwt');
+        if (!storedToken) return;
+
+        async function verifySession() {
+            try {
+                const res = await fetch('/api/auth/me', {
+                    headers: { Authorization: `Bearer ${storedToken}` }
+                });
+                if (res.ok) {
+                    const userData = await res.json();
+                    const role = userData.role?.toUpperCase() === 'SUPERVISOR'
+                        ? ROLES.SUPERVISOR
+                        : (ROLES[userData.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
+                    setCurrentRole(role);
+                    setUser({
+                        id: userData.id,
+                        name: userData.full_name || userData.email.split('@')[0],
+                        supervisorId: `SUP-${userData.id}`,
+                        department: 'RESCURO Dispatch Command',
+                        token: storedToken,
+                        authenticated: true
+                    });
+                } else {
+                    localStorage.removeItem('rescuro_jwt');
+                }
+            } catch {
+                // Keep local state unchanged if network check fails
+            }
         }
-        setCurrentRole(cred.role);
-        setUser({
-            id: 'user-001',
-            name: cred.name,
-            supervisorId: cred.supervisorId,
-            department: cred.department,
-            token: 'jwt-sup-rescuro-valid-9021',
-            authenticated: true
-        });
-        return { success: true };
+        verifySession();
+    }, []);
+
+    const login = async (username, password) => {
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: username.trim(), password })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                return { success: false, message: err.detail || 'Invalid credentials. Access denied.' };
+            }
+
+            const data = await res.json();
+            const token = data.access_token;
+            localStorage.setItem('rescuro_jwt', token);
+            const userObj = data.user;
+
+            const role = userObj.role?.toUpperCase() === 'SUPERVISOR'
+                ? ROLES.SUPERVISOR
+                : (ROLES[userObj.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
+
+            setCurrentRole(role);
+            setUser({
+                id: userObj.id,
+                name: userObj.full_name || userObj.email.split('@')[0],
+                supervisorId: `SUP-${userObj.id}`,
+                department: 'RESCURO Dispatch Command',
+                token: token,
+                authenticated: true
+            });
+            return { success: true };
+        } catch {
+            return { success: false, message: 'Server unreachable. Please check connection.' };
+        }
     };
 
     const switchRole = (newRole) => {
@@ -86,6 +158,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = () => {
+        localStorage.removeItem('rescuro_jwt');
         setUser({
             id: 'user-guest',
             name: 'Session Logged Out',
@@ -110,11 +183,11 @@ export const AuthProvider = ({ children }) => {
             user,
             currentRole,
             login,
-            switchRole,
             logout,
+            switchRole,
             hasPermission,
             hasRole,
-            permissions: PERMISSIONS[currentRole]
+            ROLES
         }}>
             {children}
         </AuthContext.Provider>
@@ -128,5 +201,3 @@ export const useAuth = () => {
     }
     return context;
 };
-
-export default AuthContext;
