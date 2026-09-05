@@ -6,12 +6,26 @@ Run locally via:
 
 import os
 import sys
+from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure workspace root is in Python module search path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.main import app, create_app
 from app.config import settings
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://rescuro-frontend.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     import uvicorn
@@ -22,13 +36,3 @@ if __name__ == "__main__":
         reload=True
     )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://rescuro-frontend.onrender.com",
-        "http://localhost:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
