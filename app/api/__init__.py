@@ -1,5 +1,5 @@
 """RESCURO API package."""
 
-from app.api import auth, vobiz, dashboard_ws, user_call, calls, exotel
+from app.api import auth, vobiz, dashboard_ws, calls, exotel
 
-__all__ = ["auth", "vobiz", "dashboard_ws", "user_call", "calls", "exotel"]
+__all__ = ["auth", "vobiz", "dashboard_ws", "calls", "exotel"]

@@ -11,10 +11,17 @@ Protocol events:
 - mark       -> Playback synchronization marks
 - clear      -> Audio buffer clearance
 - stop       -> Session termination and database logging
+
+Turn Detection Architecture:
+Exotel media chunks -> Audio buffer -> Real STT / Turn detection -> "User finished speaking"
+-> ONE transcript -> ONE orchestrator call -> ONE TTS -> ONE audio response -> Wait for next user turn.
 """
 
 import json
 import base64
+import math
+import array
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -23,19 +30,41 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.api.dashboard_ws import dashboard_manager
 from app.database import create_call_session, update_call_session, append_call_transcript
 from app.services import pipeline
+from app.services.deepgram_service import deepgram_service
 from app.services.tts_service import pcm16_to_ulaw, ulaw_to_pcm16
 
 logger = logging.getLogger("rescuro.exotel")
 router = APIRouter(prefix="/exotel", tags=["Exotel Telephony"])
+
+# Audio specs and turn detection parameters
+SAMPLE_RATE = 8000           # Exotel 8kHz
+BYTES_PER_SAMPLE = 2        # 16-bit linear PCM
+SILENCE_ENERGY_THRESHOLD = 400.0  # RMS threshold distinguishing silence from speech
+SILENCE_DURATION_MS = 700   # Milliseconds of silence to determine utterance completed
+MIN_SPEECH_DURATION_MS = 200 # Minimum speech duration to qualify as an intentional turn
+MAX_TURN_DURATION_MS = 10000 # Force process turn after 10 seconds continuous speech
+
+
+def calculate_pcm16_rms(pcm_bytes: bytes) -> float:
+    """Calculate Root Mean Square (RMS) energy for 16-bit linear PCM audio."""
+    if not pcm_bytes or len(pcm_bytes) < 2:
+        return 0.0
+    valid_len = len(pcm_bytes) - (len(pcm_bytes) % 2)
+    samples = array.array("h")
+    samples.frombytes(pcm_bytes[:valid_len])
+    if not samples:
+        return 0.0
+    sum_squares = sum(s * s for s in samples)
+    return math.sqrt(sum_squares / len(samples))
 
 
 @router.websocket("/media")
 async def exotel_media_websocket(websocket: WebSocket):
     """Bidirectional WebSocket endpoint for Exotel AgentStream voice bot protocol.
 
-    Audio Specs:
-    - Inbound: Base64 PCM16, 8kHz, mono -> Transcoded to ITU-T G.711 u-law -> Pipeline
-    - Outbound: Pipeline u-law -> Transcoded to PCM16, 8kHz, mono -> Base64 Exotel media
+    Buffers inbound PCM16 8kHz audio, performs turn/silence detection, and executes
+    ONE cohesive conversational turn (STT -> Orchestrator -> TTS -> Audio Sent)
+    per caller utterance.
     """
     await websocket.accept()
     logger.info("EXOTEL CONNECTED")
@@ -45,6 +74,111 @@ async def exotel_media_websocket(websocket: WebSocket):
     session_id: Optional[str] = None
     start_time = datetime.now(timezone.utc)
     call_status = "completed"
+
+    # Per-call audio buffer and turn detection state
+    audio_buffer = bytearray()
+    speech_detected = False
+    speech_duration_ms = 0
+    silence_duration_ms = 0
+    is_processing_turn = False
+
+    # Deepgram streaming session management
+    deepgram_audio_queue: Optional[asyncio.Queue] = None
+    deepgram_task: Optional[asyncio.Task] = None
+
+    async def process_completed_turn(transcript_text: Optional[str] = None):
+        """Execute exactly ONE full turn: STT -> Orchestrator -> TTS -> Outbound Media."""
+        nonlocal speech_detected, speech_duration_ms, silence_duration_ms, is_processing_turn
+
+        if is_processing_turn:
+            return
+        is_processing_turn = True
+
+        try:
+            active_session = session_id or f"EXO-{stream_sid or 'active'}"
+            metadata = {"provider": "exotel", "call_sid": call_sid, "stream_sid": stream_sid}
+
+            # Step 1: Obtain Transcript
+            transcript = (transcript_text or "").strip()
+            if not transcript:
+                if len(audio_buffer) == 0:
+                    return
+                logger.info("Transcribing turn audio buffer: %d bytes (speech=%dms)", len(audio_buffer), speech_duration_ms)
+                transcript = await pipeline.transcribe_audio(
+                    audio_chunk=bytes(audio_buffer),
+                    encoding="linear16",
+                    sample_rate=SAMPLE_RATE
+                )
+                transcript = (transcript or "").strip()
+
+            if not transcript:
+                logger.info("Empty transcript produced; skipping orchestrator turn.")
+                return
+
+            logger.info("TRANSCRIPT: %s", transcript)
+
+            # Step 2: Persist transcript to database
+            await append_call_transcript(active_session, transcript)
+
+            # Step 3: Run Orchestrator
+            orch_result = await pipeline.run_orchestrator(
+                transcript=transcript,
+                session_id=active_session,
+                metadata=metadata
+            )
+            response_text = orch_result.get("response_text", "")
+            logger.info("AI RESPONSE: %s", response_text)
+
+            # Step 4: Broadcast to Dispatcher Dashboard
+            await dashboard_manager.broadcast("CALL_TRANSCRIPT_UPDATE", {
+                "stream_id": stream_sid,
+                "session_id": active_session,
+                "call_id": active_session,
+                "transcript": transcript,
+                "orchestrator": orch_result
+            })
+            await dashboard_manager.broadcast("TRANSCRIPT_UPDATE", {
+                "stream_id": stream_sid,
+                "session_id": active_session,
+                "call_id": active_session,
+                "transcript": transcript,
+                "text": transcript,
+                "isAi": False
+            })
+            await dashboard_manager.broadcast("TTS_READY", {
+                "stream_id": stream_sid,
+                "session_id": active_session,
+                "call_id": active_session,
+                "text": response_text,
+                "isAi": True
+            })
+
+            # Step 5: Synthesize Speech (TTS)
+            ulaw_audio = await pipeline.synthesize_speech(response_text)
+            pcm16_audio = ulaw_to_pcm16(ulaw_audio)
+            outbound_b64 = base64.b64encode(pcm16_audio).decode("ascii")
+            logger.info("TTS GENERATED (pcm16_bytes=%d)", len(pcm16_audio))
+
+            # Step 6: Send Outbound Media Frame to Exotel
+            outbound_message = {
+                "event": "media",
+                "stream_sid": stream_sid,
+                "media": {
+                    "payload": outbound_b64
+                }
+            }
+            await websocket.send_text(json.dumps(outbound_message))
+            logger.info("AUDIO SENT (stream_sid=%s)", stream_sid)
+
+        except Exception as turn_err:
+            logger.error("Error executing voice turn: %s", turn_err, exc_info=True)
+        finally:
+            # Reset turn state for next user utterance
+            audio_buffer.clear()
+            speech_detected = False
+            speech_duration_ms = 0
+            silence_duration_ms = 0
+            is_processing_turn = False
 
     try:
         while True:
@@ -74,7 +208,6 @@ async def exotel_media_websocket(websocket: WebSocket):
                 call_sid = start_data.get("call_sid") or start_data.get("callSid") or msg.get("call_sid") or stream_sid
                 from_number = start_data.get("from") or start_data.get("caller") or "Exotel Caller"
 
-                # Key session ID using existing scheme EXO-{call_sid}
                 session_id = f"EXO-{call_sid}"
                 start_time = datetime.now(timezone.utc)
 
@@ -97,17 +230,55 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "source": "exotel",
                     "status": "ACTIVE"
                 })
-                await dashboard_manager.broadcast("VOBIZ_CALL_STARTED", {
+                await dashboard_manager.broadcast("CALL_STARTED", {
                     "stream_id": stream_sid,
                     "call_id": session_id,
                     "caller": from_number,
                     "source": "exotel",
                     "event": "start"
                 })
+                await dashboard_manager.broadcast("EXOTEL_CALL_STARTED", {
+                    "stream_id": stream_sid,
+                    "call_id": session_id,
+                    "caller": from_number,
+                    "source": "exotel",
+                    "event": "start"
+                })
+
+                # If Deepgram API key is configured, initialize streaming session
+                if deepgram_service.api_key:
+                    deepgram_audio_queue = asyncio.Queue()
+
+                    async def deepgram_worker():
+                        async def audio_gen():
+                            while True:
+                                chunk = await deepgram_audio_queue.get()
+                                if chunk is None:
+                                    break
+                                yield chunk
+                        try:
+                            async for chunk in deepgram_service.transcribe_audio_stream(
+                                audio_gen(),
+                                sample_rate=SAMPLE_RATE,
+                                encoding="linear16"
+                            ):
+                                if chunk.speech_final and chunk.text:
+                                    await process_completed_turn(chunk.text)
+                                elif chunk.text:
+                                    await dashboard_manager.broadcast("TRANSCRIPT_UPDATE", {
+                                        "stream_id": stream_sid,
+                                        "session_id": session_id,
+                                        "transcript": chunk.text,
+                                        "is_interim": True
+                                    })
+                        except Exception as dg_err:
+                            logger.warning("Deepgram streaming worker finished: %s", dg_err)
+
+                    deepgram_task = asyncio.create_task(deepgram_worker())
                 continue
 
             # ------------------------------------------------------------------
-            # 3. Media Audio Chunk Event (Bidirectional Flow)
+            # 3. Media Audio Chunk Event (Turn & Silence Detection Flow)
             # ------------------------------------------------------------------
             elif event_type == "media":
                 media_container = msg.get("media", {})
@@ -116,68 +287,60 @@ async def exotel_media_websocket(websocket: WebSocket):
                 if not payload:
                     continue
 
-                logger.info("AUDIO RECEIVED (stream_sid=%s)", stream_sid)
-
-                # Step 2: Audio Format Bridging
-                # Exotel sends Base64-encoded PCM16 8kHz mono.
-                # Decode Base64 -> raw PCM16 bytes
+                # Exotel sends Base64-encoded PCM16 8kHz mono
                 try:
                     pcm16_bytes = base64.b64decode(payload)
                 except Exception as b64_err:
                     logger.warning("Failed to decode base64 audio from Exotel: %s", b64_err)
                     continue
 
-                # Transcode PCM16 (16-bit linear) -> ITU-T G.711 u-law
-                ulaw_bytes = pcm16_to_ulaw(pcm16_bytes)
-                ulaw_b64 = base64.b64encode(ulaw_bytes).decode("ascii")
+                if not pcm16_bytes:
+                    continue
 
-                active_session = session_id or f"EXO-{stream_sid or 'active'}"
+                # If currently generating TTS or playing audio response, ignore input to prevent echo loop
+                if is_processing_turn:
+                    continue
 
-                # Step 3: Forward into existing STT -> Orchestrator -> TTS pipeline
-                result = await pipeline.process_voice_turn(
-                    audio_chunk=ulaw_b64,
-                    session_id=active_session,
-                    metadata={"provider": "exotel", "call_sid": call_sid, "stream_sid": stream_sid}
-                )
+                chunk_ms = int((len(pcm16_bytes) / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000)
+                rms = calculate_pcm16_rms(pcm16_bytes)
+                is_chunk_speech = rms >= SILENCE_ENERGY_THRESHOLD
 
-                transcript = result["transcript"]
-                response_text = result["orchestrator"]["response_text"]
+                # Pipe to streaming Deepgram queue if active
+                if deepgram_audio_queue is not None:
+                    await deepgram_audio_queue.put(pcm16_bytes)
 
-                # Step 6: Required Lifecycle Logging
-                logger.info("TRANSCRIPT: %s", transcript)
-                logger.info("AI RESPONSE: %s", response_text)
+                if is_chunk_speech:
+                    if not speech_detected:
+                        logger.info("AUDIO RECEIVED (stream_sid=%s, speech detected, rms=%.1f)", stream_sid, rms)
+                    speech_detected = True
+                    speech_duration_ms += chunk_ms
+                    silence_duration_ms = 0
+                    audio_buffer.extend(pcm16_bytes)
 
-                # Persist transcript in database
-                await append_call_transcript(active_session, transcript)
+                    # Guardrail: Force process turn if caller speaks continuously past MAX_TURN_DURATION_MS
+                    if speech_duration_ms >= MAX_TURN_DURATION_MS:
+                        logger.info("Max turn duration reached (%dms); processing turn.", speech_duration_ms)
+                        await process_completed_turn()
+                else:
+                    # Silence chunk
+                    if speech_detected:
+                        silence_duration_ms += chunk_ms
+                        audio_buffer.extend(pcm16_bytes)
 
-                # Broadcast live transcript & orchestrator decision to Dispatcher Dashboard
-                await dashboard_manager.broadcast("CALL_TRANSCRIPT_UPDATE", {
-                    "stream_id": stream_sid,
-                    "session_id": active_session,
-                    "call_id": active_session,
-                    "transcript": transcript,
-                    "orchestrator": result["orchestrator"]
-                })
-
-                # Step 4 & 5: TTS Response Path & Outbound Media
-                # The pipeline synthesized audio bytes in 8kHz G.711 u-law format.
-                # Convert u-law -> 16-bit linear PCM 8kHz mono for Exotel AgentStream
-                ulaw_audio = result["audio_bytes"]
-                pcm16_audio = ulaw_to_pcm16(ulaw_audio)
-                outbound_b64 = base64.b64encode(pcm16_audio).decode("ascii")
-
-                logger.info("TTS GENERATED (pcm16_bytes=%d)", len(pcm16_audio))
-
-                # Send outbound media frame back through WebSocket
-                outbound_message = {
-                    "event": "media",
-                    "stream_sid": stream_sid,
-                    "media": {
-                        "payload": outbound_b64
-                    }
-                }
-                await websocket.send_text(json.dumps(outbound_message))
-                logger.info("AUDIO SENT (stream_sid=%s)", stream_sid)
+                        # Utterance complete: caller paused after speaking
+                        if silence_duration_ms >= SILENCE_DURATION_MS and speech_duration_ms >= MIN_SPEECH_DURATION_MS:
+                            logger.info(
+                                "TURN DETECTED: Caller finished speaking (speech=%dms, silence=%dms, buffer=%d bytes)",
+                                speech_duration_ms, silence_duration_ms, len(audio_buffer)
+                            )
+                            await process_completed_turn()
+                    else:
+                        # Pre-speech silence - keep a rolling 100ms window for smooth onset
+                        if len(audio_buffer) < 1600:
+                            audio_buffer.extend(pcm16_bytes)
+                        else:
+                            audio_buffer[:len(pcm16_bytes)] = []
+                            audio_buffer.extend(pcm16_bytes)
 
             # ------------------------------------------------------------------
             # 4. DTMF Digits Event
@@ -198,12 +361,18 @@ async def exotel_media_websocket(websocket: WebSocket):
             # ------------------------------------------------------------------
             elif event_type == "clear":
                 logger.info("CLEAR BUFFER (stream_sid=%s)", stream_sid)
+                audio_buffer.clear()
+                speech_detected = False
+                speech_duration_ms = 0
+                silence_duration_ms = 0
 
             # ------------------------------------------------------------------
             # 7. Stop Event
             # ------------------------------------------------------------------
             elif event_type == "stop":
                 logger.info("CALL STOPPED (stream_sid=%s)", stream_sid)
+                if speech_detected and speech_duration_ms >= MIN_SPEECH_DURATION_MS:
+                    await process_completed_turn()
                 break
 
     except WebSocketDisconnect:
@@ -212,6 +381,12 @@ async def exotel_media_websocket(websocket: WebSocket):
         logger.error("Error in Exotel WebSocket session (%s): %s", session_id or stream_sid, exc)
         call_status = "interrupted"
     finally:
+        # Clean up Deepgram streaming task if active
+        if deepgram_audio_queue is not None:
+            await deepgram_audio_queue.put(None)
+        if deepgram_task is not None:
+            deepgram_task.cancel()
+
         end_time = datetime.now(timezone.utc)
         duration_sec = max(1, int((end_time - start_time).total_seconds()))
         active_session = session_id or f"EXO-{stream_sid or 'session'}"
@@ -226,14 +401,16 @@ async def exotel_media_websocket(websocket: WebSocket):
         except Exception as db_err:
             logger.error("Failed to update Exotel call session in DB: %s", db_err)
 
-        # Broadcast end of call to dispatcher dashboard
-        await dashboard_manager.broadcast("VOBIZ_CALL_ENDED", {
+        # Broadcast provider-neutral and Exotel end of call to dispatcher dashboard
+        await dashboard_manager.broadcast("CALL_ENDED", {
             "stream_id": stream_sid,
+            "session_id": active_session,
             "call_id": active_session,
             "duration_sec": duration_sec,
             "status": "COMPLETED"
         })
-        await dashboard_manager.broadcast("CALL_ENDED", {
+        await dashboard_manager.broadcast("EXOTEL_CALL_ENDED", {
+            "stream_id": stream_sid,
             "session_id": active_session,
             "call_id": active_session,
             "duration_sec": duration_sec,

@@ -43,9 +43,11 @@ class Settings(BaseSettings):
 
     # Provider API keys (Optional placeholders for when providers are chosen)
     DEEPGRAM_API_KEY: Optional[str] = None
+    DEEPGRAM_LANGUAGE: str = "en"
     OPENAI_API_KEY: Optional[str] = None
     ELEVENLABS_API_KEY: Optional[str] = None
     ELEVENLABS_VOICE_ID: Optional[str] = None
+    SLACK_WEBHOOK_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

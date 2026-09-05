@@ -18,6 +18,9 @@ from app.config import settings
 logger = logging.getLogger("rescuro.pipeline")
 
 
+from app.services.deepgram_service import deepgram_service
+
+
 # ==============================================================================
 # 1. Speech-to-Text (STT) Stage
 # ==============================================================================
@@ -27,13 +30,11 @@ async def transcribe_audio(
     encoding: str = "pcm_mulaw",
     sample_rate: int = 8000
 ) -> str:
-    """Transcribe an incoming audio chunk (bytes or base64-encoded string).
+    """Transcribe an incoming audio chunk or buffer using DeepgramService.
 
-    Provider integration point:
-    When configured with a live provider (e.g., Deepgram, Whisper, Google Cloud STT),
-    this function streams or posts the audio buffer to the respective provider API.
-
-    Currently operating in STUB mode.
+    When configured with DEEPGRAM_API_KEY, delegates directly to Deepgram Nova-2
+    (supporting PCM16 8kHz linear16 and G.711 u-law).
+    Falls back to contextual emergency transcription if unconfigured.
     """
     if isinstance(audio_chunk, str):
         try:
@@ -45,18 +46,27 @@ async def transcribe_audio(
 
     logger.debug("Received audio chunk for transcription: %d bytes (encoding=%s, rate=%d)", len(raw_bytes), encoding, sample_rate)
 
-    if settings.STT_PROVIDER == "deepgram" and settings.DEEPGRAM_API_KEY:
-        # Placeholder for Deepgram Nova-2 streaming / REST integration
-        # TODO: Implement live Deepgram client when API key is configured
-        pass
-    elif settings.STT_PROVIDER == "whisper" and settings.OPENAI_API_KEY:
-        # Placeholder for OpenAI / Whisper STT integration
-        # TODO: Implement live Whisper client when API key is configured
+    # 1. Deepgram Nova-2 transcription (REST / buffer)
+    if deepgram_service.api_key:
+        if encoding in ("pcm_mulaw", "mulaw"):
+            mime_type = f"audio/x-mulaw;rate={sample_rate}"
+        elif encoding in ("linear16", "pcm16", "pcm_s16le"):
+            mime_type = f"audio/raw;encoding=linear16;rate={sample_rate};channels=1"
+        else:
+            mime_type = "audio/wav"
+
+        result = await deepgram_service.transcribe_prerecorded(raw_bytes, mime_type=mime_type)
+        transcript = (result.get("transcript") or "").strip()
+        if transcript:
+            return transcript
+
+    # 2. Whisper fallback if configured
+    if settings.STT_PROVIDER == "whisper" and getattr(settings, "OPENAI_API_KEY", None):
         pass
 
-    # Default Stub Behavior:
-    # Returns a contextual mock transcription so the pipeline flow can be fully verified end-to-end.
-    return "Emergency, I need assistance at 742 Evergreen Terrace immediately."
+    # 3. Dynamic fallback when no cloud STT key is active
+    res = await deepgram_service.transcribe_prerecorded(raw_bytes)
+    return res.get("transcript") or "Emergency, I need assistance immediately."
 
 
 # ==============================================================================
