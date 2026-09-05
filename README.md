@@ -34,8 +34,9 @@ Command Center Dashboard
   ├── AI transcript / response
   ├── Dispatcher controls
   └── Supervisor intervention
-  ---
+```
 
+  ---
 ## Core Features
 
 ### AI Voice Triage
