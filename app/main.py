@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from app.api import supervisor_router, voice_router, telnyx_router
+from app.api import supervisor_router, voice_router, routes_telnyx
 from app.config import settings, verify_required_keys
 from app.models.events import EchoSphereEvent, EVENT_ALIAS_MAP
 from app.orchestrator import EchoSphereOrchestrator
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(voice_router)
     app.include_router(supervisor_router)
-    app.include_router(telnyx_router)
+    app.include_router(routes_telnyx.router)
 
     # Health Check Endpoint
     @app.get("/health", tags=["Health"])
