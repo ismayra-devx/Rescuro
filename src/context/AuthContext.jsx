@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { API_BASE } from '../services/api';
 
 // ─── Operational Roles & Access Matrix ──────────────────────────────────────
 export const ROLES = {
@@ -66,10 +67,6 @@ export const PERMISSIONS = {
         canViewQueue: true
     }
 };
-
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-    ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
-    : '';
 
 const AuthContext = createContext(null);
 

@@ -1,3 +1,5 @@
+import { getApiBaseUrl } from './api';
+
 /**
  * RESCURO WebSocket & Real-Time Event Stream Service
  * Connects to FastAPI backend WebSocket endpoints (/ws/dashboard or /api/v1/stream/calls)
@@ -23,15 +25,18 @@ class WebSocketService {
 
         // 1. Explicit VITE_WS_URL environment variable
         if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) {
-            const rawWs = import.meta.env.VITE_WS_URL;
+            let rawWs = import.meta.env.VITE_WS_URL.trim();
+            if (rawWs.endsWith('.onrender.co')) {
+                rawWs += 'm';
+            }
             if (!token) return rawWs;
             const sep = rawWs.includes('?') ? '&' : '?';
             return rawWs.includes('token=') ? rawWs : `${rawWs}${sep}${tokenParam}`;
         }
 
-        // 2. Derived from VITE_API_URL if configured
-        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
-            const apiUrl = import.meta.env.VITE_API_URL.replace(/\/+$/, '');
+        // 2. Derived from single source of truth getApiBaseUrl()
+        const apiUrl = getApiBaseUrl();
+        if (apiUrl) {
             const wsBase = apiUrl.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
             return token ? `${wsBase}/ws/dashboard?${tokenParam}` : `${wsBase}/api/v1/stream/calls`;
         }

@@ -3,9 +3,24 @@
  * Standardized async API calls with realistic mock fallbacks for seamless FastAPI integration.
  */
 
-export const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-    ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
-    : '';
+/**
+ * Single source of truth for the RESCURO Backend API Base URL.
+ * Reads import.meta.env.VITE_API_URL and sanitizes common typos (such as .onrender.co missing the 'm').
+ */
+export function getApiBaseUrl() {
+    let url = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+        ? import.meta.env.VITE_API_URL
+        : '';
+    if (!url) return '';
+    let cleaned = url.trim().replace(/\/+$/, '');
+    // Auto-heal common typo where '.onrender.co' is missing the 'm'
+    if (cleaned.endsWith('.onrender.co')) {
+        cleaned += 'm';
+    }
+    return cleaned;
+}
+
+export const API_BASE = getApiBaseUrl();
 
 function getAuthHeaders() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
