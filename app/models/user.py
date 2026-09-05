@@ -1,7 +1,7 @@
 """User models and schemas for RESCURO authentication."""
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, Union
 import re
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -36,7 +36,7 @@ class UserLogin(BaseModel):
 
 class UserOut(BaseModel):
     """Public user response schema."""
-    id: int
+    id: Union[int, str]
     email: str
     full_name: Optional[str] = None
     role: str

@@ -48,12 +48,37 @@ class Settings(BaseSettings):
     ELEVENLABS_API_KEY: Optional[str] = None
     ELEVENLABS_VOICE_ID: Optional[str] = None
     SLACK_WEBHOOK_URL: Optional[str] = None
+    
+    # Supabase Configuration
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+    SUPABASE_SERVICE_KEY: Optional[str] = None
+    SUPABASE_KEY: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
+    @property
+    def supabase_auth_key(self) -> Optional[str]:
+        """Return the appropriate key for Supabase Auth API calls (anon key or service role key)."""
+        return self.SUPABASE_ANON_KEY or self.SUPABASE_KEY or self.SUPABASE_SERVICE_ROLE_KEY or self.SUPABASE_SERVICE_KEY
+
+    @property
+    def is_supabase_auth_configured(self) -> bool:
+        """Check if live Supabase authentication credentials are configured."""
+        url = (self.SUPABASE_URL or "").strip()
+        key = (self.supabase_auth_key or "").strip()
+        return bool(
+            url
+            and key
+            and not url.startswith("https://your-project")
+            and not key.startswith("your_")
+            and url.lower() != "none"
+        )
 
     @property
     def cors_origins_list(self) -> List[str]:
