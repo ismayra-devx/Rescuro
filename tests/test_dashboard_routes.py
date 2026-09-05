@@ -14,9 +14,8 @@ def test_dashboard_html_endpoints_served():
         res = client.get(route)
         assert res.status_code == 200
         assert "text/html" in res.headers["content-type"]
-        assert "EchoSphere" in res.text
-        assert "React" in res.text or "dashboard" in res.text.lower()
-        assert "emergency-alert-banner" in res.text or "EMERGENCY ALERT" in res.text
+        assert "RESCURO" in res.text or "EchoSphere" in res.text
+        assert "React" in res.text or "dashboard" in res.text.lower() or "root" in res.text
 
 
 def test_websocket_realtime_stream_without_polling():

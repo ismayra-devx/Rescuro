@@ -15,10 +15,17 @@ class WebSocketService {
         this.status = 'DISCONNECTED'; // 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'FALLBACK_SIMULATOR'
         this.simulationTimer = null;
         const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000';
+        let defaultHost = 'localhost:8000';
+        if (typeof window !== 'undefined') {
+            if (window.location.port === '3000' || window.location.port === '5173') {
+                defaultHost = `${window.location.hostname}:8000`;
+            } else {
+                defaultHost = window.location.host;
+            }
+        }
         this.wsUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL)
             ? import.meta.env.VITE_WS_URL
-            : `${protocol}//${host}/api/v1/stream/calls`;
+            : `${protocol}//${defaultHost}/api/v1/stream/calls`;
     }
 
     connect(url = this.wsUrl) {
@@ -145,16 +152,23 @@ class WebSocketService {
 
         // Supervisor takeover → also call backend REST API directly
         if (actionType === 'SUPERVISOR_TAKEOVER') {
-            const restHost = typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000';
-            const restProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
-            fetch(`${restProtocol}//${restHost}/supervisor/override`, {
+            const body = JSON.stringify({
+                session_id: payload.callId || 'C-1021',
+                reason: payload.notes || 'Supervisor manual audio line intervention via Rescuro Console'
+            });
+            fetch('/supervisor/override', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    session_id: payload.callId || 'C-1021',
-                    reason: payload.notes || 'Supervisor manual audio line intervention via Rescuro Console'
-                })
-            }).catch(err => console.warn('[Takeover API error]', err));
+                body
+            }).catch(() => {
+                const restHost = typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000';
+                const restProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+                fetch(`${restProtocol}//${restHost}/supervisor/override`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body
+                }).catch(err => console.warn('[Takeover API error]', err));
+            });
         }
     }
 

@@ -241,10 +241,100 @@ export const LiveStreamProvider = ({ children }) => {
             ]);
         };
 
+        const handleNewCall = (msg) => {
+            const payload = msg.payload || msg;
+            const sessionId = msg.session_id || payload.session_id || `C-${Date.now().toString().slice(-4)}`;
+            setActiveCalls(prev => {
+                if (prev.some(c => c.id === sessionId)) return prev;
+                return [
+                    {
+                        id: sessionId,
+                        caller: payload.from || payload.caller || '+91 Live Line',
+                        maskedId: '****' + (sessionId.slice(-4)),
+                        location: payload.location || 'Realtime Stream Line',
+                        incident: payload.incident || 'Incoming Emergency Line',
+                        agent: 'Agent Nova-Triage',
+                        lang: 'Hinglish',
+                        durationSec: 0,
+                        risk: 'HIGH',
+                        riskColor: 'rose',
+                        urgency: 'HIGH',
+                        snippet: 'Live voice session connected...',
+                        supervisorOverridden: false
+                    },
+                    ...prev
+                ];
+            });
+        };
+
+        const handleTriageUpdate = (msg) => {
+            const payload = msg.payload || msg;
+            const sessionId = msg.session_id || payload.session_id;
+            const priority = payload.priority || 'MEDIUM';
+            const isEmergency = msg.event === 'EMERGENCY_ALERT' || msg.event_type === 'EMERGENCY_DETECTED' || priority === 'CRITICAL' || priority === 'HIGH';
+
+            if (sessionId) {
+                setActiveCalls(prev => prev.map(c => {
+                    if (c.id === sessionId) {
+                        return {
+                            ...c,
+                            incident: payload.category || payload.incident || c.incident,
+                            urgency: priority,
+                            risk: isEmergency ? 'HIGH' : (priority === 'LOW' ? 'SAFE' : 'REVIEW'),
+                            riskColor: isEmergency ? 'rose' : (priority === 'LOW' ? 'blue' : 'amber'),
+                            snippet: payload.reason || payload.summary || c.snippet
+                        };
+                    }
+                    return c;
+                }));
+            }
+
+            if (isEmergency) {
+                setAlerts(prev => [
+                    {
+                        id: `ALT-${Date.now().toString().slice(-3)}`,
+                        title: payload.title || payload.reason || 'Critical Emergency Triage Alert',
+                        location: payload.location || 'Live Voice Call Session',
+                        priority: 'P1 CRITICAL',
+                        priorityColor: 'rose',
+                        timeElapsed: '00m 01s',
+                        nearestUnit: 'Dispatch Pending (P1)',
+                        supervisorAssigned: 'SUP-004 (Ismayra Parveen)',
+                        details: payload.reason || 'AI triage flagged high severity emergency condition.'
+                    },
+                    ...prev
+                ]);
+            }
+        };
+
+        const handleSupervisorConnected = (msg) => {
+            const payload = msg.payload || msg;
+            const sessionId = msg.session_id || payload.session_id;
+            if (sessionId) {
+                setActiveCalls(prev => prev.map(c => c.id === sessionId ? { ...c, supervisorOverridden: true, status: 'Supervisor Active (SUP-004)', risk: 'REVIEW', riskColor: 'amber' } : c));
+            }
+        };
+
+        const handleCallEnded = (msg) => {
+            const payload = msg.payload || msg;
+            const sessionId = msg.session_id || payload.session_id;
+            if (sessionId) {
+                setActiveCalls(prev => prev.filter(c => c.id !== sessionId));
+            }
+        };
+
         const unsubTranscription = wsService.on('transcription_delta', handleTranscript);
         const unsubTr2 = wsService.on('TRANSCRIPT_RECEIVED', handleTranscript);
         const unsubTr3 = wsService.on('TRANSCRIPT_UPDATE', handleTranscript);
         const unsubTr4 = wsService.on('TTS_READY', (m) => handleTranscript({ ...m, isAi: true }));
+        const unsubNewCall = wsService.on('NEW_CALL', handleNewCall);
+        const unsubCallStarted = wsService.on('CALL_STARTED', handleNewCall);
+        const unsubTriage = wsService.on('TRIAGE_UPDATE', handleTriageUpdate);
+        const unsubTriageComp = wsService.on('TRIAGE_COMPLETED', handleTriageUpdate);
+        const unsubEmergAlert = wsService.on('EMERGENCY_ALERT', handleTriageUpdate);
+        const unsubEmergDet = wsService.on('EMERGENCY_DETECTED', handleTriageUpdate);
+        const unsubSupConn = wsService.on('SUPERVISOR_CONNECTED', handleSupervisorConnected);
+        const unsubCallEnded = wsService.on('CALL_ENDED', handleCallEnded);
 
         return () => {
             unsubStatus();
@@ -253,6 +343,14 @@ export const LiveStreamProvider = ({ children }) => {
             unsubTr2();
             unsubTr3();
             unsubTr4();
+            unsubNewCall();
+            unsubCallStarted();
+            unsubTriage();
+            unsubTriageComp();
+            unsubEmergAlert();
+            unsubEmergDet();
+            unsubSupConn();
+            unsubCallEnded();
             wsService.disconnect();
         };
     }, []);
@@ -303,6 +401,7 @@ export const LiveStreamProvider = ({ children }) => {
         if (openModal) {
             setTakeoverModalCallId(callId);
         }
+        wsService.sendAction('SUPERVISOR_TAKEOVER', { callId, notes: 'Supervisor manual audio line intervention via Rescuro Console' });
     }, []);
 
     const releaseCallToAi = useCallback((callId) => {
