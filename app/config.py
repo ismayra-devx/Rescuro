@@ -40,6 +40,15 @@ class Settings:
     # Slack Alert Notifications (Block Kit)
     SLACK_WEBHOOK_URL: Optional[str] = os.getenv("SLACK_WEBHOOK_URL")
 
+    # Telnyx Programmable Voice & Call Control
+    TELNYX_API_KEY: Optional[str] = os.getenv("TELNYX_API_KEY")
+    TELNYX_PUBLIC_KEY: Optional[str] = os.getenv("TELNYX_PUBLIC_KEY")
+    TELNYX_CONNECTION_ID: Optional[str] = os.getenv("TELNYX_CONNECTION_ID")
+    TELNYX_APPLICATION_ID: Optional[str] = os.getenv("TELNYX_APPLICATION_ID")
+    TELNYX_MEDIA_WS_URL: Optional[str] = os.getenv("TELNYX_MEDIA_WS_URL")
+    TELNYX_MEDIA_STREAM_PATH: str = os.getenv("TELNYX_MEDIA_STREAM_PATH", "/telnyx/media")
+    TELNYX_WEBHOOK_PATH: str = os.getenv("TELNYX_WEBHOOK_PATH", "/telnyx/webhook")
+
     # Operational Parameters
     CONFIDENCE_ESCALATION_THRESHOLD: float = float(os.getenv("CONFIDENCE_ESCALATION_THRESHOLD", 0.65))
 
@@ -61,6 +70,20 @@ class Settings:
         else:
             ws_base = f"wss://{base}"
         return f"{ws_base}{self.MEDIA_STREAM_PATH}"
+
+    @property
+    def telnyx_websocket_url(self) -> str:
+        """Derive WebSocket URL for Telnyx bidirectional media stream."""
+        if self.TELNYX_MEDIA_WS_URL:
+            return self.TELNYX_MEDIA_WS_URL
+        base = self.PUBLIC_BASE_URL.rstrip("/")
+        if base.startswith("https://"):
+            ws_base = "wss://" + base[8:]
+        elif base.startswith("http://"):
+            ws_base = "ws://" + base[7:]
+        else:
+            ws_base = f"wss://{base}"
+        return f"{ws_base}{self.TELNYX_MEDIA_STREAM_PATH}"
 
 
 settings = Settings()

@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSoc
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from app.api import supervisor_router, voice_router
+from app.api import supervisor_router, voice_router, telnyx_router
 from app.config import settings, verify_required_keys
 from app.models.events import EchoSphereEvent, EVENT_ALIAS_MAP
 from app.orchestrator import EchoSphereOrchestrator
@@ -19,6 +19,7 @@ from app.services.openai_service import OpenAIService
 from app.services.supabase_service import SupabaseService
 from app.services.tts_service import TTSService
 from app.services.twilio_service import TwilioService
+from app.services.telnyx_service import telnyx_service, TelnyxService
 from app.services.deepgram_service import deepgram_service, DeepgramService
 from app.services.slack_service import slack_service, SlackService
 
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.supabase_service = supabase_service
     app.state.tts_service = tts_service
     app.state.twilio_service = twilio_service
+    app.state.telnyx_service = telnyx_service
     app.state.deepgram_service = deepgram_service
     app.state.slack_service = slack_service
     app.state.orchestrator = orchestrator
@@ -104,6 +106,7 @@ def create_app() -> FastAPI:
     app.state.supabase_service = supabase_service
     app.state.tts_service = tts_service
     app.state.twilio_service = twilio_service
+    app.state.telnyx_service = telnyx_service
     app.state.deepgram_service = deepgram_service
     app.state.slack_service = slack_service
     app.state.orchestrator = orchestrator
@@ -124,6 +127,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(voice_router)
     app.include_router(supervisor_router)
+    app.include_router(telnyx_router)
 
     # Health Check Endpoint
     @app.get("/health", tags=["Health"])
