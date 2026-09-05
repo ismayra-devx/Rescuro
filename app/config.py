@@ -58,9 +58,24 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         """Return parsed list of CORS origins."""
+        default_origins = [
+            "https://rescuro-2.onrender.com",
+            "https://rescuro-1.onrender.com",
+            "https://rescuro-frontend.onrender.com",
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5174",
+        ]
         if not self.CORS_ORIGINS or self.CORS_ORIGINS == "*":
-            return ["*"]
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+            return default_origins
+        configured = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        for d in default_origins:
+            if d not in configured:
+                configured.append(d)
+        return configured
 
     @property
     def vobiz_media_stream_url(self) -> str:
