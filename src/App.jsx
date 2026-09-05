@@ -100,29 +100,21 @@ const DashboardShell = () => {
 // ── Root App: Auth gate ───────────────────────────────────────────────────────
 export const App = () => {
     const { user } = useAuth();
-    const [isTransitioning, setIsTransitioning] = useState(false);
-
-    useEffect(() => {
-        if (!user?.authenticated) {
-            setIsTransitioning(false);
-        }
-    }, [user?.authenticated]);
 
     return (
         <div className="relative min-h-screen">
-            {(user?.authenticated || isTransitioning) && (
-                <motion.div
-                    key="dashboard"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.8, ease: "easeInOut" }}
-                >
-                    <DashboardShell />
-                </motion.div>
-            )}
-
-            <AnimatePresence>
-                {!user?.authenticated && (
+            <AnimatePresence mode="wait">
+                {user?.authenticated ? (
+                    <motion.div
+                        key="dashboard"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.45, ease: "easeOut" }}
+                    >
+                        <DashboardShell />
+                    </motion.div>
+                ) : (
                     <motion.div
                         key="login-view-wrapper"
                         initial={{ opacity: 1 }}
@@ -130,7 +122,7 @@ export const App = () => {
                         transition={{ duration: 0.35, ease: "easeInOut" }}
                         className="fixed inset-0 z-50"
                     >
-                        <LoginView onStartTransition={() => setIsTransitioning(true)} />
+                        <LoginView />
                     </motion.div>
                 )}
             </AnimatePresence>

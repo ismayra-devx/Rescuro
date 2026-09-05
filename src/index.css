@@ -653,3 +653,23 @@ body {
   overflow: visible;
 }
 
+/* Blue Moving Gradient Background for Login Portal */
+.login-gradient-bg {
+  background: linear-gradient(-45deg, #f0f7ff, #dbeafe, #93c5fd, #bfdbfe, #e0f2fe, #f0f7ff);
+  background-size: 250% 250%;
+  animation: blueGradientShift 7s ease-in-out infinite alternate;
+}
+
+@keyframes blueGradientShift {
+  0% {
+    background-position: 0% 15%;
+  }
+  50% {
+    background-position: 100% 85%;
+  }
+  100% {
+    background-position: 0% 15%;
+  }
+}
+
+

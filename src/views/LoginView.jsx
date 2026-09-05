@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Blob } from '../components/Blob';
 import { User, Lock, Eye, EyeOff, AlertCircle, ShieldCheck } from 'lucide-react';
 
-export const LoginView = ({ onStartTransition }) => {
+export const LoginView = () => {
   const { login } = useAuth();
   const [username, setUsername] = useState('jack harrison');
   const [password, setPassword] = useState('123@098');
@@ -34,35 +34,103 @@ export const LoginView = ({ onStartTransition }) => {
   useEffect(() => {
     if (!isAuthorizing) return;
 
-    // Show the fast loading blob for ~1.8s, then smoothly transition to dashboard
-    const transitionTimer = setTimeout(() => {
-      onStartTransition?.();
-    }, 1800);
-
+    // Display fast wobbling blob during authorization, then cleanly authenticate
     const loginTimer = setTimeout(() => {
       login(username, password);
-    }, 2200);
+    }, 1500);
 
     return () => {
-      clearTimeout(transitionTimer);
       clearTimeout(loginTimer);
     };
-  }, [isAuthorizing, onStartTransition, login, username, password]);
+  }, [isAuthorizing, login, username, password]);
 
   return (
     <div className="fixed inset-0 flex items-center justify-center px-4 select-none">
-      {/* Almost-white canvas with a very subtle blue-slate ambient tint */}
-      <div
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          backgroundColor: '#F8FAFC',
-          backgroundImage: [
-            'radial-gradient(circle at 50% 0%, rgba(224, 242, 254, 0.45) 0%, transparent 60%)',
-            'radial-gradient(circle at 85% 90%, rgba(219, 234, 254, 0.35) 0%, transparent 50%)',
-            'radial-gradient(circle at 15% 85%, rgba(241, 245, 249, 0.50) 0%, transparent 50%)',
-          ].join(','),
-        }}
-      />
+      {/* Dynamic Blue Moving Gradient Canvas with 50% Transparency */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden bg-[#F8FAFC]">
+        {/* 50% Opacity Moving Gradient Container */}
+        <div className="absolute inset-0 opacity-50 login-gradient-bg">
+          {/* Animated Moving Gradient Orb 1 (Top Left / Center) */}
+          <motion.div
+            animate={{
+              x: [-90, 100, -50, -90],
+              y: [-60, 80, -30, -60],
+              scale: [1, 1.25, 0.9, 1],
+            }}
+            transition={{
+              duration: 7,
+              repeat: Infinity,
+              repeatType: 'reverse',
+              ease: 'easeInOut',
+            }}
+            className="absolute -top-24 -left-24 w-[560px] h-[560px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(56, 189, 248, 0.7) 0%, rgba(59, 130, 246, 0.45) 45%, transparent 70%)',
+              filter: 'blur(60px)',
+            }}
+          />
+
+          {/* Animated Moving Gradient Orb 2 (Bottom Right / Center) */}
+          <motion.div
+            animate={{
+              x: [100, -90, 60, 100],
+              y: [70, -80, 40, 70],
+              scale: [0.9, 1.25, 0.95, 0.9],
+            }}
+            transition={{
+              duration: 8,
+              repeat: Infinity,
+              repeatType: 'reverse',
+              ease: 'easeInOut',
+            }}
+            className="absolute -bottom-28 -right-28 w-[620px] h-[620px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(37, 99, 235, 0.6) 0%, rgba(96, 165, 250, 0.4) 50%, transparent 70%)',
+              filter: 'blur(65px)',
+            }}
+          />
+
+          {/* Animated Moving Gradient Orb 3 (Center / Dynamic Flow) */}
+          <motion.div
+            animate={{
+              x: [-70, 80, -80, -70],
+              y: [60, -60, 50, 60],
+              scale: [1.18, 0.88, 1.15, 1.18],
+            }}
+            transition={{
+              duration: 6.5,
+              repeat: Infinity,
+              repeatType: 'reverse',
+              ease: 'easeInOut',
+            }}
+            className="absolute top-1/4 left-1/3 w-[500px] h-[500px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(14, 165, 233, 0.55) 0%, rgba(147, 197, 253, 0.35) 50%, transparent 72%)',
+              filter: 'blur(55px)',
+            }}
+          />
+
+          {/* Animated Moving Gradient Orb 4 (Bottom Left Accent) */}
+          <motion.div
+            animate={{
+              x: [80, -70, 50, 80],
+              y: [-50, 70, -50, -50],
+              scale: [0.95, 1.2, 0.95, 0.95],
+            }}
+            transition={{
+              duration: 7.5,
+              repeat: Infinity,
+              repeatType: 'reverse',
+              ease: 'easeInOut',
+            }}
+            className="absolute bottom-10 left-10 w-[440px] h-[440px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(2, 132, 199, 0.5) 0%, rgba(186, 230, 253, 0.3) 50%, transparent 70%)',
+              filter: 'blur(50px)',
+            }}
+          />
+        </div>
+      </div>
 
       <AnimatePresence mode="wait">
         {!isAuthorizing ? (
@@ -101,7 +169,7 @@ export const LoginView = ({ onStartTransition }) => {
             {/* Premium Translucent Form Card with 18px radius and soft shadow */}
             <form
               onSubmit={handleSubmit}
-              className="w-full space-y-4 bg-white/90 backdrop-blur-md p-6 rounded-[18px] border border-slate-200/90 shadow-[0_12px_32px_-4px_rgba(0,0,0,0.06),0_4px_12px_-2px_rgba(0,0,0,0.03)]"
+              className="w-full space-y-4 bg-white/88 backdrop-blur-xl p-6 rounded-[18px] border border-white/90 shadow-[0_16px_40px_-6px_rgba(37,99,235,0.12),0_4px_16px_-2px_rgba(0,0,0,0.03)]"
             >
               {/* Username Field */}
               <div>
