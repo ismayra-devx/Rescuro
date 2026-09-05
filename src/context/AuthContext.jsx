@@ -67,6 +67,10 @@ export const PERMISSIONS = {
     }
 };
 
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+    ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
+    : '';
+
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
@@ -87,7 +91,7 @@ export const AuthProvider = ({ children }) => {
 
         async function verifySession() {
             try {
-                const res = await fetch('/api/auth/me', {
+                const res = await fetch(`${API_BASE}/api/auth/me`, {
                     headers: { Authorization: `Bearer ${storedToken}` }
                 });
                 if (res.ok) {
@@ -116,7 +120,7 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (username, password) => {
         try {
-            const res = await fetch('/api/auth/login', {
+            const res = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: username.trim(), password })
@@ -137,6 +141,43 @@ export const AuthProvider = ({ children }) => {
                 : (ROLES[userObj.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
 
             setCurrentRole(role);
+            setUser({
+                id: userObj.id,
+                name: userObj.full_name || userObj.email.split('@')[0],
+                supervisorId: `SUP-${userObj.id}`,
+                department: 'RESCURO Dispatch Command',
+                token: token,
+                authenticated: true
+            });
+            return { success: true };
+        } catch {
+            return { success: false, message: 'Server unreachable. Please check connection.' };
+        }
+    };
+
+    const signup = async (email, password, fullName, role = 'dispatcher') => {
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email.trim(), password, full_name: fullName, role })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                return { success: false, message: err.detail || 'Registration failed.' };
+            }
+
+            const data = await res.json();
+            const token = data.access_token;
+            localStorage.setItem('rescuro_jwt', token);
+            const userObj = data.user;
+
+            const userRole = userObj.role?.toUpperCase() === 'SUPERVISOR'
+                ? ROLES.SUPERVISOR
+                : (ROLES[userObj.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
+
+            setCurrentRole(userRole);
             setUser({
                 id: userObj.id,
                 name: userObj.full_name || userObj.email.split('@')[0],
@@ -183,6 +224,7 @@ export const AuthProvider = ({ children }) => {
             user,
             currentRole,
             login,
+            signup,
             logout,
             switchRole,
             hasPermission,

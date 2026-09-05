@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { History, Search, Play, Pause, Download, MapPin, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { History, Search, Play, Pause, Download, MapPin, Clock, RefreshCw } from 'lucide-react';
+import { fetchCallHistory } from '../services/api';
 
 const HISTORICAL_CALLS = [
     { callId: 'C-1021', time: '11:42 AM', caller: '+91 98110-XXXXX', location: 'Sector 18, Noida', incident: 'Road Traffic Collision', duration: '03:42', lang: 'Hinglish', risk: 'HIGH', status: 'In Progress', statusColor: 'text-amber-700 bg-amber-50 border-amber-200', summary: 'Collision between two motor vehicles near metro pillar 42. Dispatched medical squad.' },
@@ -11,9 +12,72 @@ const HISTORICAL_CALLS = [
 ];
 
 export const CallHistoryView = ({ onToast }) => {
+    const [callRecords, setCallRecords] = useState(HISTORICAL_CALLS);
+    const [loading, setLoading] = useState(false);
     const [query, setQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [playingId, setPlayingId] = useState(null);
+
+    const loadHistory = async () => {
+        try {
+            setLoading(true);
+            const data = await fetchCallHistory();
+            if (Array.isArray(data) && data.length > 0) {
+                const formatted = data.map(item => {
+                    const callId = item.call_id || item.id || 'C-UNKNOWN';
+                    let timeStr = 'Recent';
+                    if (item.start_time) {
+                        try {
+                            timeStr = new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        } catch {
+                            timeStr = String(item.start_time).slice(11, 16) || 'Recent';
+                        }
+                    } else if (item.timestamp) {
+                        timeStr = String(item.timestamp).slice(11, 16) || item.timestamp;
+                    }
+
+                    const rawStatus = (item.status || 'completed').toLowerCase();
+                    const isExotel = item.source === 'exotel';
+                    const isVobiz = item.source === 'vobiz';
+                    let displayStatus = 'AI Resolved';
+                    let statusColor = 'text-blue-700 bg-blue-50 border-blue-200';
+                    if (rawStatus === 'active') {
+                        displayStatus = 'In Progress';
+                        statusColor = 'text-amber-700 bg-amber-50 border-amber-200';
+                    } else if (isExotel) {
+                        displayStatus = 'Exotel AI Turn';
+                        statusColor = 'text-emerald-700 bg-emerald-50 border-emerald-200';
+                    } else if (rawStatus === 'dispatched') {
+                        displayStatus = 'Dispatched';
+                        statusColor = 'text-rose-700 bg-rose-50 border-rose-200';
+                    }
+
+                    return {
+                        callId: callId,
+                        time: timeStr,
+                        caller: item.caller || item.caller_name || '+91 Telephony',
+                        location: item.location || (isExotel ? 'Exotel Inbound Trunk' : (isVobiz ? 'Vobiz SIP Gateway' : 'Sector 18, Noida')),
+                        incident: item.incident || (item.transcript ? (item.transcript.length > 45 ? item.transcript.slice(0, 45) + '...' : item.transcript) : 'Emergency Call Intake'),
+                        duration: item.duration || (item.duration_sec ? `${Math.floor(item.duration_sec / 60)}m ${item.duration_sec % 60}s` : '00m 00s'),
+                        lang: item.language || 'Hinglish',
+                        risk: item.riskTier || item.risk || 'HIGH',
+                        status: displayStatus,
+                        statusColor: statusColor,
+                        summary: item.transcript || item.summary || (isExotel ? 'Exotel AgentStream live call processed with turn detection.' : 'Incident intake session recorded in audit log.')
+                    };
+                });
+                setCallRecords(formatted);
+            }
+        } catch (err) {
+            console.warn('Could not load call history:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadHistory();
+    }, []);
 
     const togglePlay = (id) => {
         if (playingId === id) {
@@ -68,14 +132,14 @@ export const CallHistoryView = ({ onToast }) => {
         if (onToast) onToast('Compiled and downloaded formatted 24h CSV audit report', 'download');
     };
 
-    const filtered = HISTORICAL_CALLS.filter(c => 
+    const filtered = callRecords.filter(c => 
         (statusFilter === 'ALL' || c.status === statusFilter) &&
         (!query || [c.callId, c.caller, c.location, c.incident].some(s => s.toLowerCase().includes(query.toLowerCase())))
     );
 
     return (
         <div className="space-y-4">
-            {/* Header / Filter Toolbar (No Subtitle Clutter) */}
+            {/* Header / Filter Toolbar */}
             <div className="bg-white/65 backdrop-blur-2xl border border-white/90 rounded-2xl p-4 shadow-[0_12px_40px_rgb(0,0,0,0.06)] flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                     <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/60 shadow-2xs">
@@ -95,7 +159,7 @@ export const CallHistoryView = ({ onToast }) => {
                         />
                     </div>
                     <div className="flex bg-slate-100/80 p-0.5 rounded-xl text-[10px] font-mono font-bold border border-slate-200/60">
-                        {['ALL', 'AI Resolved', 'Handed Over', 'Dispatched'].map(s => (
+                        {['ALL', 'AI Resolved', 'Handed Over', 'Dispatched', 'Exotel AI Turn'].map(s => (
                             <button
                                 key={s} onClick={() => setStatusFilter(s)}
                                 className={`px-2 py-1 rounded-lg transition-all ${statusFilter === s ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
@@ -104,6 +168,14 @@ export const CallHistoryView = ({ onToast }) => {
                             </button>
                         ))}
                     </div>
+                    <button
+                        onClick={loadHistory}
+                        disabled={loading}
+                        className="py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-mono font-bold text-xs shadow-2xs flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                        title="Refresh live logs from database"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
                     <button
                         onClick={handleExportAudit}
                         className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-mono font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"

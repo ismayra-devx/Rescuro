@@ -14,24 +14,46 @@ class WebSocketService {
         this.baseReconnectDelay = 2000;
         this.heartbeatTimer = null;
         this.status = 'DISCONNECTED'; // 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR'
+        this.wsUrl = this.getWsUrl();
+    }
+
+    getWsUrl() {
+        const token = typeof window !== 'undefined' ? (localStorage.getItem('rescuro_jwt') || '') : '';
+        const tokenParam = token ? `token=${encodeURIComponent(token)}` : '';
+
+        // 1. Explicit VITE_WS_URL environment variable
+        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) {
+            const rawWs = import.meta.env.VITE_WS_URL;
+            if (!token) return rawWs;
+            const sep = rawWs.includes('?') ? '&' : '?';
+            return rawWs.includes('token=') ? rawWs : `${rawWs}${sep}${tokenParam}`;
+        }
+
+        // 2. Derived from VITE_API_URL if configured
+        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+            const apiUrl = import.meta.env.VITE_API_URL.replace(/\/+$/, '');
+            const wsBase = apiUrl.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
+            return token ? `${wsBase}/ws/dashboard?${tokenParam}` : `${wsBase}/api/v1/stream/calls`;
+        }
+
+        // 3. Dynamic browser window host resolution (localhost or production domain)
         const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let defaultHost = 'localhost:8000';
         if (typeof window !== 'undefined') {
-            if (window.location.port === '3000' || window.location.port === '5173') {
+            if (window.location.port === '3000' || window.location.port === '5173' || window.location.port === '5174') {
                 defaultHost = `${window.location.hostname}:8000`;
             } else {
                 defaultHost = window.location.host;
             }
         }
-        const token = typeof window !== 'undefined' ? (localStorage.getItem('rescuro_jwt') || '') : '';
-        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-        this.wsUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL)
-            ? import.meta.env.VITE_WS_URL
-            : (token ? `${protocol}//${defaultHost}/ws/dashboard${tokenParam}` : `${protocol}//${defaultHost}/api/v1/stream/calls`);
+
+        return token
+            ? `${protocol}//${defaultHost}/ws/dashboard?${tokenParam}`
+            : `${protocol}//${defaultHost}/api/v1/stream/calls`;
     }
 
-    connect(url = this.wsUrl) {
-        this.wsUrl = url;
+    connect(url = null) {
+        this.wsUrl = url || this.getWsUrl();
         this.updateStatus('CONNECTING');
 
         try {
@@ -66,7 +88,7 @@ class WebSocketService {
                     this.reconnectAttempts++;
                     const delay = this.baseReconnectDelay * Math.pow(1.5, this.reconnectAttempts);
                     this.updateStatus('CONNECTING');
-                    setTimeout(() => this.connect(this.wsUrl), delay);
+                    setTimeout(() => this.connect(this.getWsUrl()), delay);
                 } else {
                     this.updateStatus('DISCONNECTED');
                     this.emit('connection_change', { status: 'DISCONNECTED', message: 'Backend unreachable. Reconnect attempts exhausted.' });
@@ -76,6 +98,21 @@ class WebSocketService {
             console.error('[WS] WebSocket initialization failed:', e);
             this.updateStatus('ERROR');
             this.emit('connection_error', { message: 'Failed to initialize WebSocket connection.' });
+        }
+    }
+
+    sendAction(action, payload = {}) {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({ type: action, action, payload, timestamp: Date.now() }));
+        } else {
+            console.warn('[WS] Cannot send action, socket is not open:', action);
+        }
+    }
+
+    send(data) {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            const payload = typeof data === 'string' ? data : JSON.stringify(data);
+            this.socket.send(payload);
         }
     }
 

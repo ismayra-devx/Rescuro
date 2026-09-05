@@ -3,9 +3,18 @@
  * Standardized async API calls with realistic mock fallbacks for seamless FastAPI integration.
  */
 
+export const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+    ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
+    : '';
+
+function getAuthHeaders() {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
 export async function fetchActiveLines() {
     try {
-        const res = await fetch('/api/active-lines');
+        const res = await fetch(`${API_BASE}/api/active-lines`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -21,7 +30,7 @@ export async function fetchActiveLines() {
 
 export async function fetchAgoraMetrics() {
     try {
-        const res = await fetch('/api/metrics/agora');
+        const res = await fetch(`${API_BASE}/api/metrics/agora`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -39,7 +48,7 @@ export async function fetchAgoraMetrics() {
 
 export async function fetchTriageFlags() {
     try {
-        const res = await fetch('/api/triage/flags');
+        const res = await fetch(`${API_BASE}/api/triage/flags`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -80,7 +89,7 @@ export async function fetchTriageFlags() {
 
 export async function fetchTranscriptFeed() {
     try {
-        const res = await fetch('/api/transcripts/live');
+        const res = await fetch(`${API_BASE}/api/transcripts/live`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -123,7 +132,7 @@ export async function fetchTranscriptFeed() {
 
 export async function fetchExtractedSlots() {
     try {
-        const res = await fetch('/api/triage/slots');
+        const res = await fetch(`${API_BASE}/api/triage/slots`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -139,7 +148,7 @@ export async function fetchExtractedSlots() {
 
 export async function fetchDispatchUnits() {
     try {
-        const res = await fetch('/api/dispatch/units');
+        const res = await fetch(`${API_BASE}/api/dispatch/units`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -153,7 +162,7 @@ export async function fetchDispatchUnits() {
 
 export async function fetchAnalyticsSummary() {
     try {
-        const res = await fetch('/api/analytics/load');
+        const res = await fetch(`${API_BASE}/api/analytics/load`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -186,14 +195,20 @@ export async function fetchAnalyticsSummary() {
 
 export async function fetchCallHistory() {
     try {
-        const res = await fetch('/api/calls/history');
-        if (res.ok) return await res.json();
+        const res = await fetch(`${API_BASE}/api/calls/history`, { headers: getAuthHeaders() });
+        if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+                return data;
+            }
+        }
     } catch (e) {
         // Fallback mock
     }
     return [
         {
             id: 'C-1021',
+            call_id: 'C-1021',
             timestamp: '2026-09-04 15:22:10',
             caller: '+91 98110-XXXXX',
             location: 'Sector 18 Metro, Noida',
@@ -205,6 +220,7 @@ export async function fetchCallHistory() {
         },
         {
             id: 'C-1020',
+            call_id: 'C-1020',
             timestamp: '2026-09-04 14:55:04',
             caller: '+91 98765-XXXXX',
             location: 'Building 10B, Cyber City, Gurugram',
@@ -216,6 +232,7 @@ export async function fetchCallHistory() {
         },
         {
             id: 'C-1019',
+            call_id: 'C-1019',
             timestamp: '2026-09-04 14:18:22',
             caller: '+91 94120-XXXXX',
             location: 'Katra Neel, Chandni Chowk, Delhi',
@@ -227,6 +244,7 @@ export async function fetchCallHistory() {
         },
         {
             id: 'C-1018',
+            call_id: 'C-1018',
             timestamp: '2026-09-04 13:40:15',
             caller: '+91 99530-XXXXX',
             location: 'Indirapuram, Ghaziabad',
@@ -238,6 +256,7 @@ export async function fetchCallHistory() {
         },
         {
             id: 'C-1017',
+            call_id: 'C-1017',
             timestamp: '2026-09-04 12:15:30',
             caller: '+91 97180-XXXXX',
             location: 'Connaught Place, New Delhi',
@@ -252,7 +271,7 @@ export async function fetchCallHistory() {
 
 export async function fetchAlertsLog() {
     try {
-        const res = await fetch('/api/alerts/history');
+        const res = await fetch(`${API_BASE}/api/alerts/history`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -279,7 +298,7 @@ export async function fetchAlertsLog() {
 
 export async function fetchSupervisorProfile() {
     try {
-        const res = await fetch('/api/settings/profile');
+        const res = await fetch(`${API_BASE}/api/settings/profile`, { headers: getAuthHeaders() });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback mock
@@ -296,9 +315,12 @@ export async function fetchSupervisorProfile() {
 
 export async function dispatchUnit(unitId, callId = 'C-1021') {
     try {
-        const res = await fetch(`/api/dispatch/${unitId}`, {
+        const res = await fetch(`${API_BASE}/api/dispatch/${unitId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ callId, timestamp: Date.now() })
         });
         if (res.ok) return await res.json();
@@ -310,9 +332,12 @@ export async function dispatchUnit(unitId, callId = 'C-1021') {
 
 export async function broadcastAllUnits(summary) {
     try {
-        const res = await fetch('/api/dispatches/broadcast-all', {
+        const res = await fetch(`${API_BASE}/api/dispatches/broadcast-all`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ summary, initiator: 'SUP-004' })
         });
         if (res.ok) return await res.json();
@@ -324,9 +349,12 @@ export async function broadcastAllUnits(summary) {
 
 export async function updatePreferences(preferences) {
     try {
-        const res = await fetch('/api/settings/preferences', {
+        const res = await fetch(`${API_BASE}/api/settings/preferences`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify(preferences)
         });
         if (res.ok) return await res.json();
@@ -338,7 +366,10 @@ export async function updatePreferences(preferences) {
 
 export async function logoutSupervisor() {
     try {
-        const res = await fetch('/api/auth/logout', { method: 'POST' });
+        const res = await fetch(`${API_BASE}/api/auth/logout`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
         if (res.ok) return await res.json();
     } catch (e) {
         // Fallback
