@@ -131,7 +131,7 @@ def create_app() -> FastAPI:
     assets_dir = os.path.join(dist_dir, "assets")
     if os.path.exists(assets_dir):
         from fastapi.staticfiles import StaticFiles
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        application.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     # Dashboard HTML Serving
     @application.get("/", response_class=HTMLResponse, tags=["Dashboard"])
