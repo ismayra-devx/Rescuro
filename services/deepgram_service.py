@@ -13,6 +13,7 @@ import wave
 import inspect
 from typing import Any, AsyncGenerator, Callable, Dict, Optional, Awaitable, List
 import websockets
+import websockets.exceptions as ws_exceptions
 import httpx
 from pydantic import BaseModel
 
@@ -245,14 +246,41 @@ class DeepgramService:
                 finally:
                     send_task.cancel()
 
+        ws_err_types = (
+            getattr(ws_exceptions, "InvalidStatus", Exception),
+            getattr(ws_exceptions, "InvalidStatusCode", Exception),
+        )
         try:
             async for chunk in _run_ws(ws_endpoint, model_tier):
                 yield chunk
-        except websockets.exceptions.InvalidStatusCode as ws_err:
-            logger.error(
-                "DEEPGRAM STREAM ERROR: Deepgram WebSocket handshake failed (HTTP %s): %s",
-                ws_err.status_code, ws_err
-            )
+        except ws_err_types as ws_err:
+            status_code = getattr(ws_err, "status_code", None)
+            if status_code is None and hasattr(ws_err, "response"):
+                status_code = getattr(ws_err.response, "status_code", None)
+            if status_code in (400, 403, 404) and model_tier == "nova-3":
+                logger.warning(
+                    "Deepgram streaming model 'nova-3' rejected (HTTP %s: %s). Falling back to 'nova-2'.",
+                    status_code, ws_err
+                )
+                fallback_query = self._get_query_params(
+                    sample_rate=sample_rate,
+                    encoding=encoding,
+                    channels=channels,
+                    language=target_lang,
+                    model="nova-2"
+                )
+                fallback_endpoint = f"{DEEPGRAM_WS_URL}?{fallback_query}"
+                try:
+                    async for chunk in _run_ws(fallback_endpoint, "nova-2"):
+                        yield chunk
+                    return
+                except Exception as fallback_exc:
+                    logger.error("DEEPGRAM STREAM ERROR: Deepgram fallback to nova-2 failed: %s", fallback_exc)
+            else:
+                logger.error(
+                    "DEEPGRAM STREAM ERROR: Deepgram WebSocket handshake failed (HTTP %s): %s",
+                    status_code, ws_err
+                )
         except Exception as exc:
             logger.error("DEEPGRAM STREAM ERROR: %s", exc)
 
@@ -354,6 +382,60 @@ class DeepgramService:
                             "language": detected_lang,
                             "languages": detected_languages,
                         }
+
+                if response.status_code in (400, 403, 404) and model_tier == "nova-3":
+                    logger.warning(
+                        "Deepgram REST model 'nova-3' rejected (HTTP %d: %s). Retrying with 'nova-2' fallback.",
+                        response.status_code, response.text
+                    )
+                    fallback_params = [
+                        ("model", "nova-2"),
+                        ("language", target_lang),
+                        ("smart_format", "true"),
+                        ("punctuate", "true"),
+                        ("sample_rate", str(sample_rate)),
+                        ("channels", str(channels)),
+                    ]
+                    if is_mulaw:
+                        fallback_params.append(("encoding", "mulaw"))
+                    elif not payload_bytes.startswith(b"RIFF"):
+                        fallback_params.append(("encoding", "linear16"))
+                    if target_lang in ("hi", "es"):
+                        fallback_params.append(("extra", "code_switch:true"))
+                    for kw, weight in EMERGENCY_KEYWORDS.items():
+                        fallback_params.append(("keywords", f"{kw}:{weight}"))
+
+                    try:
+                        fallback_resp = await client.post(
+                            DEEPGRAM_REST_URL,
+                            headers=headers,
+                            params=fallback_params,
+                            content=payload_bytes,
+                        )
+                        if fallback_resp.status_code == 200:
+                            data = fallback_resp.json()
+                            results_channels = data.get("results", {}).get("channels", [])
+                            if results_channels and results_channels[0].get("alternatives"):
+                                alt = results_channels[0]["alternatives"][0]
+                                transcript_text = alt.get("transcript", "").strip()
+                                detected_lang = (
+                                    alt.get("detected_language")
+                                    or (alt.get("languages")[0] if alt.get("languages") else None)
+                                    or target_lang
+                                )
+                                detected_languages = alt.get("languages") or [detected_lang]
+                                return {
+                                    "transcript": transcript_text,
+                                    "confidence": alt.get("confidence", 0.0),
+                                    "language": detected_lang,
+                                    "languages": detected_languages,
+                                }
+                        logger.error(
+                            "Deepgram REST fallback 'nova-2' returned HTTP %d: %s",
+                            fallback_resp.status_code, fallback_resp.text
+                        )
+                    except Exception as fb_exc:
+                        logger.error("Deepgram REST fallback error: %s", fb_exc)
 
                 # Log the complete HTTP status and safe response details without exposing credentials
                 logger.error(

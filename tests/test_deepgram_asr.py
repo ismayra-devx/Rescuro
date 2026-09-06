@@ -225,17 +225,18 @@ async def test_deepgram_fallback_model_caching():
         return mock_resp_200
 
     with patch("httpx.AsyncClient.post", new=mock_post):
-        # Turn 1: HTTP 400 error returns empty transcript safely without crashing
+        # Turn 1: HTTP 400 error on nova-3 automatically falls back to nova-2 and succeeds
         res1 = await svc.transcribe_prerecorded(b"\x00" * 3200)
-        assert res1["transcript"] == ""
+        assert res1["transcript"] == "Mera accident ho gaya hai"
         assert requests_recorded[0]["model"] == "nova-3"
         assert requests_recorded[0]["language"] == "multi"
+        assert requests_recorded[1]["model"] == "nova-2"
         # Verify nova-2 is NOT permanently cached
         assert not hasattr(svc, "_active_model") or svc._active_model is None
 
         # Turn 2: nova-3 is attempted again (no permanent fallback on 400)
         res2 = await svc.transcribe_prerecorded(b"\x00" * 3200)
         assert res2["transcript"] == "Mera accident ho gaya hai"
-        assert requests_recorded[1]["model"] == "nova-3"
-        assert requests_recorded[1]["language"] == "multi"
+        assert requests_recorded[2]["model"] == "nova-3"
+        assert requests_recorded[2]["language"] == "multi"
 
