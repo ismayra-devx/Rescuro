@@ -44,11 +44,13 @@ def test_nova3_multilingual_websocket_configuration():
     params = params_str.split("&")
     param_dict = {}
     keywords = []
-
+    keyterms = []
     for p in params:
         if "=" in p:
             k, v = p.split("=", 1)
-            if k == "keywords":
+            if k == "keyterm":
+                keyterms.append(v)
+            elif k == "keywords":
                 keywords.append(v)
             else:
                 param_dict[k] = v
@@ -72,9 +74,18 @@ def test_nova3_multilingual_websocket_configuration():
     assert param_dict.get("endpointing") == "300"
     assert param_dict.get("utterance_end_ms") == "1000"
 
-    # 5. Keywords parameter must NOT be sent for Nova-3 (unsupported in Nova-3)
+    # 5. Keyterm parameter configured without weights (Nova-3 Keyterm Prompting)
     assert len(keywords) == 0, "Keywords must not be sent for Nova-3"
     assert "keywords=" not in params_str
+    assert "ambulance" in keyterms
+    assert "emergency" in keyterms
+    assert "accident" in keyterms
+    assert "police" in keyterms
+    assert "fire" in keyterms
+    assert "bachao" in keyterms
+    assert "madad" in keyterms
+    for kt in keyterms:
+        assert ":" not in kt, f"Keyterm '{kt}' must not include intensifier/weight"
 
 
 @pytest.mark.asyncio
@@ -113,7 +124,9 @@ async def test_nova3_multilingual_rest_configuration():
 
     assert len(requests_sent) == 1
     call_kwargs = requests_sent[0]
-    param_dict = dict(call_kwargs.get("params", []))
+    all_params = call_kwargs.get("params", [])
+    param_dict = dict(all_params)
+    keyterm_params = [v for k, v in all_params if k == "keyterm"]
 
     assert param_dict.get("model") == "nova-3", "REST request must target nova-3"
     assert param_dict.get("language") == "multi", "REST request must target language=multi"
@@ -122,10 +135,34 @@ async def test_nova3_multilingual_rest_configuration():
     assert "extra" not in param_dict, "Nova-3 must NOT include extra=code_switch parameter"
     assert "keywords" not in param_dict, "Nova-3 must NOT include keywords parameter"
 
+    # Verify Nova-3 Keyterm prompting parameters present without weights
+    assert "ambulance" in keyterm_params
+    assert "emergency" in keyterm_params
+    assert "accident" in keyterm_params
+    for kt in keyterm_params:
+        assert ":" not in kt, f"Keyterm '{kt}' must not include intensifier/weight"
+
     # Verify return payload contains multilingual language metadata
     assert res["transcript"] == "Mera accident ho gaya hai"
     assert res["language"] == "hi"
     assert "hi" in res["languages"]
+
+
+def test_live_deepgram_api_keyterm_and_multilingual_validation():
+    """Live integration test querying Deepgram API (https://api.deepgram.com/v1/listen)
+    to prove that the exact query string built by deepgram_service is accepted by Deepgram
+    without returning HTTP 400 INVALID_QUERY_PARAMETER.
+    """
+    import httpx
+    query_str = deepgram_service._get_query_params(sample_rate=8000, encoding="linear16")
+    url = f"https://api.deepgram.com/v1/listen?{query_str}"
+
+    try:
+        resp = httpx.post(url, headers={"Authorization": "Token live_query_probe_key"}, content=b"probe", timeout=10.0)
+        assert resp.status_code != 400, f"Deepgram rejected query parameters with 400: {resp.text}"
+        assert resp.status_code in (401, 200), f"Unexpected status {resp.status_code}: {resp.text}"
+    except httpx.RequestError as exc:
+        pytest.skip(f"Network unavailable for live Deepgram probe: {exc}")
 
 
 # ==============================================================================

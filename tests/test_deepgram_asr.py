@@ -11,12 +11,15 @@ def test_deepgram_query_params_defaults():
     params = params_str.split("&")
     param_dict = {}
     keywords = []
+    keyterms = []
 
     for p in params:
         if "=" in p:
             k, v = p.split("=", 1)
             if k == "keywords":
                 keywords.append(v)
+            elif k == "keyterm":
+                keyterms.append(v)
             else:
                 param_dict[k] = v
 
@@ -41,6 +44,13 @@ def test_deepgram_query_params_defaults():
     # 6. Verify keywords parameter is NOT sent for Nova-3 (unsupported on Nova-3)
     assert len(keywords) == 0, "Keywords must not be sent for Nova-3"
     assert "keywords=" not in params_str
+
+    # 7. Verify keyterm parameter is sent with plain terms (no weights/intensifiers)
+    assert len(keyterms) > 0, "Keyterms must be sent for Nova-3"
+    assert "ambulance" in keyterms
+    assert "emergency" in keyterms
+    for kt in keyterms:
+        assert ":" not in kt, f"Keyterm '{kt}' must not include intensifier/weight"
 
 
 def test_deepgram_query_params_custom_overrides():

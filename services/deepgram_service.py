@@ -83,11 +83,14 @@ EMERGENCY_KEYWORDS: Dict[str, int] = {
 }
 
 
+EMERGENCY_KEYTERMS: List[str] = list(EMERGENCY_KEYWORDS.keys())
+
+
 class DeepgramService:
     """
     Streaming and REST transcription service powered by Deepgram Nova-3 Multilingual (model=nova-3, language=multi).
     Optimized for real-time multilingual code-switching (English, Hindi, Hinglish), linear16 8kHz mono PCM,
-    domain emergency keyword boosting, endpointing (300ms), and utterance_end_ms (1000ms).
+    domain emergency keyterm prompting, endpointing (300ms), and utterance_end_ms (1000ms).
     """
 
     def __init__(self):
@@ -119,7 +122,7 @@ class DeepgramService:
         Builds query parameters for Deepgram streaming WebSocket.
         Applies nova-3 tier with native multilingual code-switching (language=multi),
         endpointing=300ms, utterance_end_ms=1000ms, linear16 8kHz mono,
-        punctuation, smart formatting, and emergency keyword boosting.
+        punctuation, smart formatting, and emergency keyterm prompting.
         """
         chosen_model = model or getattr(settings, "DEEPGRAM_MODEL", "nova-3")
         chosen_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "multi")
@@ -137,10 +140,15 @@ class DeepgramService:
             f"encoding={encoding}",
         ]
 
-        # In Nova-3, multilingual code-switching is native with language=multi.
-        # Note: 'keywords' is unsupported on Nova-3.
-        if chosen_model == "nova-2" and chosen_lang in ("hi", "es"):
-            params.append("extra=code_switch:true")
+        # Keyterm Prompting for Nova-3 (plain terms, no weights) vs legacy keywords for Nova-2
+        if chosen_model == "nova-3":
+            for kt in EMERGENCY_KEYTERMS:
+                params.append(f"keyterm={kt}")
+        elif chosen_model == "nova-2":
+            if chosen_lang in ("hi", "es"):
+                params.append("extra=code_switch:true")
+            for kw, weight in EMERGENCY_KEYWORDS.items():
+                params.append(f"keywords={kw}:{weight}")
 
         return "&".join(params)
 
@@ -309,11 +317,15 @@ class DeepgramService:
         elif not payload_bytes.startswith(b"RIFF"):
             params.append(("encoding", "linear16"))
 
-        # In Nova-3, language=multi natively handles multilingual code-switching.
-        if model_tier == "nova-2" and target_lang in ("hi", "es"):
-            params.append(("extra", "code_switch:true"))
-
-        # Note: 'keywords' is unsupported on Nova-3.
+        # Keyterm prompting for Nova-3 (plain terms, no weights) vs legacy keywords for Nova-2
+        if model_tier == "nova-3":
+            for kt in EMERGENCY_KEYTERMS:
+                params.append(("keyterm", kt))
+        elif model_tier == "nova-2":
+            if target_lang in ("hi", "es"):
+                params.append(("extra", "code_switch:true"))
+            for kw, weight in EMERGENCY_KEYWORDS.items():
+                params.append(("keywords", f"{kw}:{weight}"))
 
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
