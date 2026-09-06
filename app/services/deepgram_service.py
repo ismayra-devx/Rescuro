@@ -7,6 +7,9 @@ Provides:
 
 import json
 import logging
+import io
+import wave
+import inspect
 from typing import Any, AsyncGenerator, Callable, Dict, Optional, Awaitable
 import websockets
 import httpx
@@ -21,6 +24,29 @@ logger = logging.getLogger("rescuro.deepgram")
 
 DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen"
 DEEPGRAM_REST_URL = "https://api.deepgram.com/v1/listen"
+
+
+def _get_ws_connect_kwargs(headers: dict) -> dict:
+    """Detect whether installed websockets expects additional_headers (v14+) or extra_headers (v12-13)."""
+    sig = inspect.signature(websockets.connect)
+    if "additional_headers" in sig.parameters:
+        return {"additional_headers": headers}
+    return {"extra_headers": headers}
+
+
+def pcm16_to_wav_bytes(pcm_data: bytes, sample_rate: int = 8000, channels: int = 1) -> bytes:
+    """Wraps raw signed 16-bit little-endian linear PCM audio bytes in a standard RIFF/WAV container."""
+    if not pcm_data:
+        return b""
+    if pcm_data.startswith(b"RIFF"):
+        return pcm_data
+    with io.BytesIO() as wav_io:
+        with wave.open(wav_io, "wb") as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_data)
+        return wav_io.getvalue()
 
 
 class TranscriptChunk(BaseModel):
@@ -130,22 +156,7 @@ class DeepgramService:
         target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
 
         if not key or key.startswith("your_"):
-            logger.debug("Deepgram API key not configured; mock streaming generator waiting for audio stream.")
-            chunks_received = 0
-            async for chunk in audio_chunks:
-                if chunk:
-                    chunks_received += 1
-            if chunks_received > 0:
-                chunk_obj = TranscriptChunk(
-                    text="Emergency, I need assistance immediately.",
-                    confidence=0.94,
-                    is_final=True,
-                    language=target_lang,
-                    speech_final=True
-                )
-                if on_chunk_callback:
-                    await on_chunk_callback(chunk_obj)
-                yield chunk_obj
+            logger.debug("Deepgram API key not configured; STT streaming inactive.")
             return
 
         model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
@@ -159,9 +170,10 @@ class DeepgramService:
         headers = {"Authorization": f"Token {key}"}
 
         async def _run_ws(endpoint: str, active_model: str):
-            async with websockets.connect(endpoint, extra_headers=headers) as ws:
+            connect_kwargs = _get_ws_connect_kwargs(headers)
+            async with websockets.connect(endpoint, **connect_kwargs) as ws:
                 logger.info(
-                    "Connected to Deepgram streaming WebSocket (model=%s, lang=%s, encoding=%s, rate=%d).",
+                    "DEEPGRAM STREAM CONNECTED (model=%s, lang=%s, encoding=%s, rate=%d).",
                     active_model, target_lang, encoding, sample_rate
                 )
 
@@ -232,36 +244,56 @@ class DeepgramService:
                     async for chunk in _run_ws(fallback_endpoint, "nova-2"):
                         yield chunk
                 except Exception as fallback_exc:
-                    logger.error("Deepgram fallback to nova-2 failed: %s", fallback_exc)
+                    logger.error("DEEPGRAM STREAM ERROR: Deepgram fallback to nova-2 failed: %s", fallback_exc)
             else:
-                logger.error("Deepgram WebSocket handshake failed (%s): %s", ws_err.status_code, ws_err)
+                logger.error("DEEPGRAM STREAM ERROR: Deepgram WebSocket handshake failed (%s): %s", ws_err.status_code, ws_err)
         except Exception as exc:
-            logger.error("Deepgram streaming WebSocket exception: %s", exc)
+            logger.error("DEEPGRAM STREAM ERROR: %s", exc)
 
     async def transcribe_prerecorded(
         self,
         audio_bytes: bytes,
-        mime_type: str = "audio/raw;encoding=linear16;rate=8000;channels=1",
+        mime_type: Optional[str] = None,
+        sample_rate: int = 8000,
+        encoding: str = "linear16",
+        channels: int = 1,
         language: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         One-shot REST transcription fallback for recorded audio buffers.
-        Supports nova-3 with automated fallback to nova-2, en-IN language,
-        punctuation, and domain emergency keyword boosting.
+        Wraps raw PCM16 audio in standard WAV format to guarantee reliable Deepgram parsing.
+        Never manufactures a fake transcript on failure.
         """
         key = self.api_key
         target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
 
         if not key or key.startswith("your_"):
+            logger.debug("Deepgram API key not configured. Returning empty transcript (no fake fallback).")
             return {
-                "transcript": "Emergency, I need assistance immediately.",
-                "confidence": 0.95,
+                "transcript": "",
+                "confidence": 0.0,
                 "language": target_lang
             }
 
+        if not audio_bytes:
+            return {"transcript": "", "confidence": 0.0, "language": target_lang}
+
+        # Convert raw PCM16 into standard WAV to ensure 100% reliable REST decoding by Deepgram
+        is_mulaw = mime_type and "mulaw" in mime_type.lower()
+        if is_mulaw:
+            effective_mime = f"audio/x-mulaw;rate={sample_rate}"
+            payload_bytes = audio_bytes
+        elif audio_bytes.startswith(b"RIFF") or (mime_type and "wav" in mime_type.lower()):
+            effective_mime = "audio/wav"
+            payload_bytes = audio_bytes
+        else:
+            # Raw linear PCM -> package into valid standard WAV container
+            effective_mime = "audio/wav"
+            payload_bytes = pcm16_to_wav_bytes(audio_bytes, sample_rate=sample_rate, channels=channels)
+
         headers = {
             "Authorization": f"Token {key}",
-            "Content-Type": mime_type
+            "Content-Type": effective_mime
         }
         model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
         params = [
@@ -269,7 +301,14 @@ class DeepgramService:
             ("smart_format", "true"),
             ("punctuate", "true"),
             ("language", target_lang),
+            ("sample_rate", str(sample_rate)),
+            ("channels", str(channels)),
         ]
+        if is_mulaw:
+            params.append(("encoding", "mulaw"))
+        elif not payload_bytes.startswith(b"RIFF"):
+            params.append(("encoding", "linear16"))
+
         if target_lang in ("hi", "en-IN"):
             params.append(("extra", "code_switch:true"))
 
@@ -282,7 +321,7 @@ class DeepgramService:
                     DEEPGRAM_REST_URL,
                     headers=headers,
                     params=params,
-                    content=audio_bytes
+                    content=payload_bytes
                 )
                 # Fallback to nova-2 if nova-3 is unavailable on plan
                 if response.status_code in (400, 404) and model_tier != "nova-2":
@@ -295,16 +334,17 @@ class DeepgramService:
                         DEEPGRAM_REST_URL,
                         headers=headers,
                         params=fallback_params,
-                        content=audio_bytes
+                        content=payload_bytes
                     )
 
                 if response.status_code == 200:
                     data = response.json()
-                    channels = data.get("results", {}).get("channels", [])
-                    if channels and channels[0].get("alternatives"):
-                        alt = channels[0]["alternatives"][0]
+                    results_channels = data.get("results", {}).get("channels", [])
+                    if results_channels and results_channels[0].get("alternatives"):
+                        alt = results_channels[0]["alternatives"][0]
+                        transcript_text = alt.get("transcript", "").strip()
                         return {
-                            "transcript": alt.get("transcript", ""),
+                            "transcript": transcript_text,
                             "confidence": alt.get("confidence", 0.0),
                             "language": alt.get("languages", [target_lang])[0] if alt.get("languages") else target_lang
                         }

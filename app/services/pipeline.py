@@ -19,6 +19,17 @@ logger = logging.getLogger("rescuro.pipeline")
 
 
 from app.services.deepgram_service import deepgram_service
+from app.services.openai_service import openai_service
+
+# Per-session multi-turn conversation history and extracted slots
+_session_conversations: Dict[str, list] = {}
+_session_slots: Dict[str, Dict[str, Any]] = {}
+
+
+def clear_session_state(session_id: str):
+    """Cleanly clear in-memory conversation history and slots for a terminated session."""
+    _session_conversations.pop(session_id, None)
+    _session_slots.pop(session_id, None)
 
 
 # ==============================================================================
@@ -35,7 +46,7 @@ async def transcribe_audio(
     When configured with DEEPGRAM_API_KEY, delegates directly to Deepgram Nova-3 / Nova-2
     (supporting PCM16 linear16 and G.711 u-law).
     Defaults to native linear16 (PCM16) to avoid lossy transcoding round-trips.
-    Falls back to contextual emergency transcription if unconfigured.
+    Never manufactures a fake transcript when transcription fails or key is unconfigured.
     """
     if isinstance(audio_chunk, str):
         try:
@@ -47,16 +58,22 @@ async def transcribe_audio(
 
     logger.debug("Received audio chunk for transcription: %d bytes (encoding=%s, rate=%d)", len(raw_bytes), encoding, sample_rate)
 
-    # 1. Deepgram Nova-2 transcription (REST / buffer)
+    if not raw_bytes:
+        return ""
+
+    # 1. Deepgram Nova-3/Nova-2 transcription (REST / buffer)
     if deepgram_service.api_key:
         if encoding in ("pcm_mulaw", "mulaw"):
             mime_type = f"audio/x-mulaw;rate={sample_rate}"
-        elif encoding in ("linear16", "pcm16", "pcm_s16le"):
-            mime_type = f"audio/raw;encoding=linear16;rate={sample_rate};channels=1"
         else:
             mime_type = "audio/wav"
 
-        result = await deepgram_service.transcribe_prerecorded(raw_bytes, mime_type=mime_type)
+        result = await deepgram_service.transcribe_prerecorded(
+            raw_bytes,
+            mime_type=mime_type,
+            sample_rate=sample_rate,
+            encoding=encoding
+        )
         transcript = (result.get("transcript") or "").strip()
         if transcript:
             return transcript
@@ -66,8 +83,13 @@ async def transcribe_audio(
         pass
 
     # 3. Dynamic fallback when no cloud STT key is active
-    res = await deepgram_service.transcribe_prerecorded(raw_bytes)
-    return res.get("transcript") or "Emergency, I need assistance immediately."
+    res = await deepgram_service.transcribe_prerecorded(
+        raw_bytes,
+        sample_rate=sample_rate,
+        encoding=encoding
+    )
+    # NEVER fabricate a fake emergency transcript
+    return (res.get("transcript") or "").strip()
 
 
 # ==============================================================================
@@ -81,30 +103,62 @@ async def run_orchestrator(
 ) -> Dict[str, Any]:
     """Analyze the caller's transcript and determine RESCURO's dispatch response.
 
-    This function houses the emergency decision logic:
-    - Analyzes intent, urgency, hazard classification, and required responders
-    - Generates the verbal response to be played back to the caller
-    - Produces structured dispatch metadata for real-time dashboard updates
-
-    Currently running default RESCURO emergency dispatch decision logic.
+    Maintains per-session conversation context (history and slots) across turns.
+    Integrates with OpenAIService structured triage while providing intelligent
+    continuity across turns for emergencies, location updates, and greetings.
     """
     cleaned_text = transcript.strip()
     session_key = session_id or f"rescuro_{int(datetime.now().timestamp())}"
-    lower_text = cleaned_text.lower()
+    history = _session_conversations.setdefault(session_key, [])
+    slots = _session_slots.setdefault(session_key, {})
 
-    # Rule-based emergency classification (extensible to LLM dispatch agent)
-    urgency = "HIGH" if any(w in lower_text for w in ["fire", "accident", "trauma", "unconscious", "bleeding", "immediately"]) else "MEDIUM"
+    # Extract intent, entities, and slots using OpenAIService
+    extraction = await openai_service.extract_intent(
+        cleaned_text,
+        conversation_history=history,
+        session_slots=slots
+    )
+
+    raw_urgency = extraction.urgency or "MEDIUM"
+    urgency = "HIGH" if raw_urgency in ("HIGH", "CRITICAL") else raw_urgency
     category = "MEDICAL"
-    if "fire" in lower_text or "smoke" in lower_text:
-        category = "FIRE"
-    elif "intruder" in lower_text or "police" in lower_text or "robbery" in lower_text:
-        category = "POLICE"
+    if extraction.incident_type:
+        inc = extraction.incident_type.upper()
+        if "FIRE" in inc:
+            category = "FIRE"
+        elif "POLICE" in inc or "SECURITY" in inc:
+            category = "POLICE"
+        elif "TRAFFIC" in inc or "ACCIDENT" in inc:
+            category = "TRAFFIC"
+        elif "INQUIRY" in inc:
+            category = "INQUIRY"
+        else:
+            category = inc
+    else:
+        lower_text = cleaned_text.lower()
+        if "fire" in lower_text or "smoke" in lower_text:
+            category = "FIRE"
+        elif "intruder" in lower_text or "police" in lower_text or "robbery" in lower_text:
+            category = "POLICE"
+        elif "accident" in lower_text or "crash" in lower_text:
+            category = "TRAFFIC"
 
-    # RESCURO's synthesized verbal message to the caller
-    response_text = (
+    # Update session slots
+    if extraction.location:
+        slots["location"] = extraction.location
+    if extraction.incident_type:
+        slots["incident_type"] = extraction.incident_type
+    slots["urgency"] = urgency
+    slots["category"] = category
+
+    response_text = extraction.reply or (
         f"RESCURO Emergency Dispatch received your report. Units have been alerted with {urgency} priority. "
         "Help is being routed to your location now. Please stay on the line."
     )
+
+    # Append to session conversation history
+    history.append({"role": "user", "content": cleaned_text})
+    history.append({"role": "assistant", "content": response_text})
 
     result = {
         "session_id": session_key,
@@ -112,13 +166,17 @@ async def run_orchestrator(
         "response_text": response_text,
         "urgency": urgency,
         "category": category,
-        "status": "DISPATCH_EN_ROUTE",
+        "location": slots.get("location"),
+        "status": "DISPATCH_EN_ROUTE" if extraction.emergency else "ACTIVE",
         "units_assigned": [f"{category}-ALPHA-1", "RESCURO-DRONE-02"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "metadata": metadata or {}
     }
 
-    logger.info("Orchestrator decision for session %s: Category=%s, Urgency=%s", session_key, category, urgency)
+    logger.info(
+        "Orchestrator decision for session %s: Category=%s, Urgency=%s, Location=%s",
+        session_key, category, urgency, slots.get("location")
+    )
     return result
 
 

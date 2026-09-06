@@ -130,7 +130,12 @@ class OpenAIService:
             except Exception as e:
                 logger.warning(f"Failed to initialize AsyncOpenAI client: {e}")
 
-    async def extract_intent(self, transcript: str) -> LLMExtractionResult:
+    async def extract_intent(
+        self,
+        transcript: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        session_slots: Optional[Dict[str, Any]] = None
+    ) -> LLMExtractionResult:
         """Extract structured incident data from transcript using OpenAI Structured Outputs or fallback adapter."""
         if not transcript or not transcript.strip():
             return LLMExtractionResult(
@@ -147,12 +152,15 @@ class OpenAIService:
         # Use live AsyncOpenAI client if configured
         if self._async_client:
             try:
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                if conversation_history:
+                    for turn in conversation_history[-6:]:
+                        messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
+                messages.append({"role": "user", "content": transcript})
+
                 response = await self._async_client.beta.chat.completions.parse(
                     model=settings.OPENAI_MODEL,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": transcript},
-                    ],
+                    messages=messages,
                     response_format=LLMExtractionResult,
                 )
                 parsed = response.choices[0].message.parsed
@@ -161,12 +169,50 @@ class OpenAIService:
             except Exception as exc:
                 logger.error(f"OpenAI API request failed: {exc}. Falling back to adapter.")
 
-        # Offline / Fallback Mock Adapter mirroring the 5 few-shot examples
-        return self._mock_extract(transcript)
+        # Offline / Fallback Mock Adapter mirroring few-shot examples and multi-turn state
+        return self._mock_extract(transcript, session_slots=session_slots)
 
-    def _mock_extract(self, transcript: str) -> LLMExtractionResult:
-        """Deterministic adapter mirroring the 5 few-shot examples for testing and offline environments."""
-        t_lower = transcript.lower()
+    def _mock_extract(
+        self,
+        transcript: str,
+        session_slots: Optional[Dict[str, Any]] = None
+    ) -> LLMExtractionResult:
+        """Deterministic adapter mirroring the 5 few-shot examples and multi-turn state for testing."""
+        t_lower = transcript.lower().strip()
+        slots = session_slots or {}
+
+        # 0. Conversational Greetings (e.g. "Hello", "Hi", "Namaste", "Are you there")
+        greetings = ["hello", "hi", "hey", "namaste", "sun rahe ho", "are you there", "good morning", "good evening"]
+        is_greeting = any(t_lower == g or t_lower.startswith(f"{g} ") or t_lower.endswith(f" {g}") for g in greetings)
+
+        if is_greeting:
+            if slots.get("incident_type") or slots.get("category"):
+                loc = slots.get("location")
+                if loc:
+                    reply = f"Hello, I am still with you on the line. Help is on the way to {loc}. Please stay in a safe position."
+                else:
+                    reply = "Hello, I am still with you on the line. Units are being alerted. Please tell me your exact location."
+                return LLMExtractionResult(
+                    reply=reply,
+                    incident_type=slots.get("incident_type") or "emergency",
+                    location=loc,
+                    urgency=slots.get("urgency", "HIGH"),
+                    emergency=True,
+                    extracted_slots={"intent": "greeting_followup"},
+                    llm_confidence=0.95,
+                    route="human_supervisor",
+                )
+            else:
+                return LLMExtractionResult(
+                    reply="Hello, this is RESCURO Emergency Dispatch. What is your emergency?",
+                    incident_type=None,
+                    location=None,
+                    urgency="LOW",
+                    emergency=False,
+                    extracted_slots={"intent": "greeting"},
+                    llm_confidence=0.95,
+                    route="automated",
+                )
 
         # 1. Few-shot Example 1: Routine
         if "address" in t_lower or "office" in t_lower:
@@ -181,7 +227,25 @@ class OpenAIService:
                 route="automated",
             )
 
-        # 2. Few-shot Example 2: Accident
+        # 2. Location Specific: Rajiv Chowk
+        if "rajiv chowk" in t_lower:
+            has_prior_incident = bool(slots.get("incident_type") or slots.get("category"))
+            if has_prior_incident or "accident" in t_lower:
+                reply = "Location Rajiv Chowk confirmed. Emergency response units have been dispatched to Rajiv Chowk. Please stay on the line."
+            else:
+                reply = "Location Rajiv Chowk confirmed. What is the emergency at Rajiv Chowk?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type=slots.get("incident_type") or "traffic_accident",
+                location="Rajiv Chowk",
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"location": "Rajiv Chowk"},
+                llm_confidence=0.95,
+                route="human_supervisor",
+            )
+
+        # 3. Few-shot Example 2: Accident on Main Street or general car accident
         if "main street" in t_lower or ("accident" in t_lower and "hurt" in t_lower):
             return LLMExtractionResult(
                 reply="Emergency units are being alerted. Where exactly on Main Street are you located?",
@@ -194,7 +258,25 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # 3. Few-shot Example 3: Ambiguous
+        # 4. Car accident without location
+        if "accident" in t_lower and ("car" in t_lower or "traffic" in t_lower or "vehicle" in t_lower or "there has been" in t_lower):
+            loc = slots.get("location")
+            if loc:
+                reply = f"RESCURO Emergency Dispatch received your report. Units have been alerted with HIGH priority for {loc}. Please stay on the line."
+            else:
+                reply = "RESCURO Emergency Dispatch received your report of a car accident. Units are alerted with HIGH priority. What is your exact location?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="traffic_accident",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"vehicles": "car"},
+                llm_confidence=0.96,
+                route="human_supervisor",
+            )
+
+        # 5. Few-shot Example 3: Ambiguous
         if "kuch problem" in t_lower or "problem" in t_lower or "issue" in t_lower:
             return LLMExtractionResult(
                 reply="Highway pe kya pareshani hai, kripya vistaar se batayein? Kya koi durghatna hui hai?",
@@ -207,7 +289,7 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # 4. Few-shot Example 4: Hinglish Accident
+        # 6. Few-shot Example 4: Hinglish Accident
         if "accident" in t_lower and ("injured" in t_lower or "banda" in t_lower or "highway" in t_lower):
             return LLMExtractionResult(
                 reply="Ambulance aur patrol team ko alert kar diya gaya hai. Highway pe aapka exact point kaun sa hai?",
@@ -220,7 +302,7 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # 5. Few-shot Example 5: Emergency
+        # 7. Few-shot Example 5: Emergency
         if "bachao" in t_lower or "aag" in t_lower or "fire" in t_lower or "danger" in t_lower:
             return LLMExtractionResult(
                 reply="Fire services ko alert bhej diya gaya hai. Kripya building se turant bahar niklein aur safe doori banayein!",

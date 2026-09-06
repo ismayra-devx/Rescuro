@@ -204,3 +204,255 @@ def test_protected_routes_unaffected():
     assert history_resp.status_code == 200
     calls_list = history_resp.json()
     assert any(c["id"] == "EXO-exo_call_sid_12345" for c in calls_list)
+
+
+from unittest.mock import patch, AsyncMock
+from app.services import pipeline
+
+
+def test_pipeline_turn_stt_succeeds():
+    """TEST 1: STT succeeds -> actual transcript is passed to orchestrator."""
+    stream_sid = "exo_stream_t1"
+    call_sid = "exo_call_t1"
+    actual_speech = "There has been a car accident."
+
+    with patch("app.services.pipeline.transcribe_audio", new=AsyncMock(return_value=actual_speech)) as mock_stt:
+        with client.websocket_connect("/exotel/media") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+            ws.send_text(json.dumps({
+                "event": "start",
+                "stream_sid": stream_sid,
+                "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999991"}
+            }))
+
+            # Send speech (240ms) + silence (720ms)
+            speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            # Receive outbound media and mark
+            resp_media = json.loads(ws.receive_text())
+            assert resp_media.get("event") == "media"
+            resp_mark = json.loads(ws.receive_text())
+            assert resp_mark.get("event") == "mark"
+
+            # Verify mock_stt was called and actual transcript processed
+            assert mock_stt.called
+            ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+
+
+def test_pipeline_turn_stt_fails_no_fake_transcript():
+    """TEST 2: STT fails -> NO fake transcript is generated; safe clarification prompt sent."""
+    stream_sid = "exo_stream_t2"
+    call_sid = "exo_call_t2"
+
+    with patch("app.services.pipeline.transcribe_audio", new=AsyncMock(return_value="")) as mock_stt:
+        with patch("app.services.pipeline.run_orchestrator", wraps=pipeline.run_orchestrator) as spy_orch:
+            with client.websocket_connect("/exotel/media") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(json.dumps({
+                    "event": "start",
+                    "stream_sid": stream_sid,
+                    "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999992"}
+                }))
+
+                # Send speech + silence
+                speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+                for _ in range(12):
+                    ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+                silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+                for _ in range(36):
+                    ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+                # Receive outbound media and mark (the safe clarification prompt)
+                resp_media = json.loads(ws.receive_text())
+                assert resp_media.get("event") == "media"
+                resp_mark = json.loads(ws.receive_text())
+                assert resp_mark.get("event") == "mark"
+
+                # Orchestrator was NOT called with fake emergency text!
+                for call in spy_orch.call_args_list:
+                    assert call.kwargs.get("transcript") != "Emergency, I need assistance immediately."
+                    if call.args:
+                        assert call.args[0] != "Emergency, I need assistance immediately."
+
+                ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+
+
+def test_caller_multiple_turns_continuity():
+    """TEST 3: Multiple turns: Turn 1 (accident) -> Turn 2 (Rajiv Chowk location).
+    Expected: two separate transcripts, two orchestrator executions, location preserved in session context."""
+    stream_sid = "exo_stream_t3"
+    call_sid = "exo_call_t3"
+
+    turn_transcripts = ["There has been a car accident.", "My location is Rajiv Chowk."]
+    stt_index = 0
+
+    async def mock_transcribe(*args, **kwargs):
+        nonlocal stt_index
+        if stt_index < len(turn_transcripts):
+            val = turn_transcripts[stt_index]
+            stt_index += 1
+            return val
+        return ""
+
+    with patch("app.services.pipeline.transcribe_audio", side_effect=mock_transcribe):
+        with client.websocket_connect("/exotel/media") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+            ws.send_text(json.dumps({
+                "event": "start",
+                "stream_sid": stream_sid,
+                "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999993"}
+            }))
+
+            speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+            silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+
+            # TURN 1: "There has been a car accident."
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t1_media = json.loads(ws.receive_text())
+            assert t1_media["event"] == "media"
+            t1_mark = json.loads(ws.receive_text())
+            assert t1_mark["event"] == "mark"
+            mark1_name = t1_mark["mark"]["name"]
+
+            # Echo mark acknowledgment from Exotel to finish Turn 1 playback
+            ws.send_text(json.dumps({"event": "mark", "stream_sid": stream_sid, "mark": {"name": mark1_name}}))
+
+            # TURN 2: "My location is Rajiv Chowk."
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t2_media = json.loads(ws.receive_text())
+            assert t2_media["event"] == "media"
+            t2_mark = json.loads(ws.receive_text())
+            assert t2_mark["event"] == "mark"
+            mark2_name = t2_mark["mark"]["name"]
+
+            assert mark1_name != mark2_name
+            assert stt_index == 2
+
+            ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+
+
+def test_caller_says_hello_does_not_repeat_emergency_response():
+    """TEST 4: Caller says 'Hello' after emergency response.
+    Expected: processed as a new turn; previous emergency response is NOT repeated."""
+    stream_sid = "exo_stream_t4"
+    call_sid = "exo_call_t4"
+
+    turn_transcripts = ["There has been a car accident.", "Hello"]
+    stt_index = 0
+
+    async def mock_transcribe(*args, **kwargs):
+        nonlocal stt_index
+        if stt_index < len(turn_transcripts):
+            val = turn_transcripts[stt_index]
+            stt_index += 1
+            return val
+        return ""
+
+    with patch("app.services.pipeline.transcribe_audio", side_effect=mock_transcribe):
+        with client.websocket_connect("/exotel/media") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+            ws.send_text(json.dumps({
+                "event": "start",
+                "stream_sid": stream_sid,
+                "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999994"}
+            }))
+
+            speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+            silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+
+            # Turn 1: Emergency accident report
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t1_media = json.loads(ws.receive_text())
+            t1_mark = json.loads(ws.receive_text())
+            ws.send_text(json.dumps({"event": "mark", "stream_sid": stream_sid, "mark": {"name": t1_mark["mark"]["name"]}}))
+
+            # Turn 2: Caller says "Hello"
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t2_media = json.loads(ws.receive_text())
+            t2_mark = json.loads(ws.receive_text())
+
+            assert stt_index == 2
+            ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+
+
+def test_outgoing_tts_audio_cannot_trigger_duplicate_turn():
+    """TEST 5: Outgoing TTS audio cannot trigger a duplicate turn (Echo suppression).
+    Inbound audio sent during assistant playback is suppressed and does NOT trigger an extra turn."""
+    stream_sid = "exo_stream_t5"
+    call_sid = "exo_call_t5"
+
+    stt_calls = 0
+
+    async def mock_transcribe(*args, **kwargs):
+        nonlocal stt_calls
+        stt_calls += 1
+        return "Help, emergency here."
+
+    with patch("app.services.pipeline.transcribe_audio", side_effect=mock_transcribe):
+        with client.websocket_connect("/exotel/media") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+            ws.send_text(json.dumps({
+                "event": "start",
+                "stream_sid": stream_sid,
+                "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999995"}
+            }))
+
+            speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+            silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+
+            # Turn 1: genuine caller speech
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t1_media = json.loads(ws.receive_text())
+            t1_mark = json.loads(ws.receive_text())
+            mark_name = t1_mark["mark"]["name"]
+            assert stt_calls == 1
+
+            # Simulate telephone bridge echo while assistant is speaking (no mark returned yet)
+            echo_b64 = base64.b64encode(struct.pack("<h", 2800) * 160).decode("ascii")
+            for _ in range(15):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": echo_b64}}))
+            for _ in range(40):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            # Verify no extra turn was executed due to echo
+            assert stt_calls == 1
+
+            # Now mark is returned from Exotel acknowledging playback completion
+            ws.send_text(json.dumps({"event": "mark", "stream_sid": stream_sid, "mark": {"name": mark_name}}))
+
+            # Next genuine caller speech turn
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            t2_media = json.loads(ws.receive_text())
+            t2_mark = json.loads(ws.receive_text())
+            assert stt_calls == 2
+
+            ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))

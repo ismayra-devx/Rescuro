@@ -16,7 +16,9 @@ _db_initialized = False
 async def init_db():
     """Create database tables if they do not already exist."""
     global _db_initialized
-    async with aiosqlite.connect(settings.DATABASE_PATH) as db:
+    async with aiosqlite.connect(settings.DATABASE_PATH, timeout=30.0) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA busy_timeout=30000;")
         # 1. Users Table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -64,8 +66,9 @@ async def get_db_connection() -> aiosqlite.Connection:
     if not _db_initialized:
         await init_db()
 
-    conn = await aiosqlite.connect(settings.DATABASE_PATH)
+    conn = await aiosqlite.connect(settings.DATABASE_PATH, timeout=30.0)
     conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 

@@ -104,7 +104,8 @@ async def test_pipeline_stages():
     mock_audio = b"\x00\x01\x02\x03"
     transcript = await pipeline.transcribe_audio(mock_audio)
     assert isinstance(transcript, str)
-    assert len(transcript) > 0
+    # Verifies that STT returns clean string and no fake transcript is manufactured
+    assert transcript == ""
 
     # 2. Orchestrator
     orch = await pipeline.run_orchestrator("Fire reported on 5th floor, send firefighters immediately", session_id="sess_test")
