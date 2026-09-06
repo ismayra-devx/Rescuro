@@ -2,47 +2,58 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { Blob } from '../components/Blob';
-import { User, Lock, Eye, EyeOff, AlertCircle, ShieldCheck } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, AlertCircle, ShieldCheck, Mail } from 'lucide-react';
 
 export const LoginView = () => {
   const { login } = useAuth();
-  const [username, setUsername] = useState('jack harrison');
-  const [password, setPassword] = useState('123@098');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting || isAuthorizing) return;
     setError('');
 
-    // Verify credentials first
-    const isValid = username.trim().toLowerCase() === 'jack harrison' && password === '123@098';
-    if (!isValid) {
-      setError('Invalid credentials. Access denied.');
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      setError('Please enter your email address.');
       return;
     }
 
-    // Enter authenticating loading blob state
+    if (!password) {
+      setError('Please enter your password.');
+      return;
+    }
+
+    console.log('[LoginView] Form submitted for:', cleanEmail);
     setIsSubmitting(true);
     setIsAuthorizing(true);
+
+    try {
+      console.log('[LoginView] Dispatching login request to backend...');
+      const res = await login(cleanEmail, password);
+      console.log('[LoginView] login() response returned:', res);
+
+      if (!res.success) {
+        console.warn('[LoginView] Authentication failed:', res.message);
+        setError(res.message || 'Invalid email or password.');
+        setIsAuthorizing(false);
+        setIsSubmitting(false);
+      } else {
+        console.log('[LoginView] Authentication succeeded. Transitioning to dashboard...');
+      }
+    } catch (err) {
+      console.error('[LoginView] Error during login submission:', err);
+      setError('An error occurred during authentication. Please verify connection and retry.');
+      setIsAuthorizing(false);
+      setIsSubmitting(false);
+    }
   };
-
-  useEffect(() => {
-    if (!isAuthorizing) return;
-
-    // Display fast wobbling blob during authorization, then cleanly authenticate
-    const loginTimer = setTimeout(() => {
-      login(username, password);
-    }, 1500);
-
-    return () => {
-      clearTimeout(loginTimer);
-    };
-  }, [isAuthorizing, login, username, password]);
 
   return (
     <div className="fixed inset-0 flex items-center justify-center px-4 select-none">
@@ -171,29 +182,29 @@ export const LoginView = () => {
               onSubmit={handleSubmit}
               className="w-full space-y-4 bg-white/88 backdrop-blur-xl p-6 rounded-[18px] border border-white/90 shadow-[0_16px_40px_-6px_rgba(37,99,235,0.12),0_4px_16px_-2px_rgba(0,0,0,0.03)]"
             >
-              {/* Username Field */}
+              {/* Email Field */}
               <div>
                 <label className="block text-[11px] font-semibold tracking-wide uppercase text-slate-600 mb-1.5 font-sans">
-                  Username
+                  Email Address
                 </label>
                 <div
                   className={`flex items-center bg-white rounded-xl border transition-all ${
-                    focusedField === 'username'
+                    focusedField === 'email'
                       ? 'border-blue-600 ring-2 ring-blue-600/15 shadow-2xs'
                       : 'border-slate-300 hover:border-slate-400'
                   }`}
                 >
                   <span className="pl-3.5 text-slate-500">
-                    <User className="w-4 h-4" />
+                    <Mail className="w-4 h-4" />
                   </span>
                   <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    onFocus={() => setFocusedField('username')}
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onFocus={() => setFocusedField('email')}
                     onBlur={() => setFocusedField(null)}
-                    placeholder="Enter supervisor username"
-                    autoComplete="username"
+                    placeholder="Enter supervisor email (e.g. ankitkrth1911@gmail.com)"
+                    autoComplete="email"
                     required
                     className="w-full bg-transparent px-3 py-2.5 text-sm font-medium text-slate-900 outline-none placeholder-slate-400 font-sans"
                   />

@@ -72,6 +72,9 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
     const [currentRole, setCurrentRole] = useState(ROLES.GUEST);
+    const [authLoading, setAuthLoading] = useState(() => {
+        return typeof window !== 'undefined' && !!localStorage.getItem('rescuro_jwt');
+    });
     const [user, setUser] = useState({
         id: null,
         name: null,
@@ -84,15 +87,21 @@ export const AuthProvider = ({ children }) => {
     // Restore authenticated session from real backend token
     useEffect(() => {
         const storedToken = localStorage.getItem('rescuro_jwt');
-        if (!storedToken) return;
+        if (!storedToken) {
+            setAuthLoading(false);
+            return;
+        }
 
         async function verifySession() {
+            console.log('[Auth] Restoring session from localStorage token...');
             try {
                 const res = await fetch(`${API_BASE}/api/auth/me`, {
                     headers: { Authorization: `Bearer ${storedToken}` }
                 });
+                console.log('[Auth] GET /api/auth/me response status:', res.status);
                 if (res.ok) {
                     const userData = await res.json();
+                    console.log('[Auth] Session restored for user:', userData.email, 'Role:', userData.role);
                     const role = userData.role?.toUpperCase() === 'SUPERVISOR'
                         ? ROLES.SUPERVISOR
                         : (ROLES[userData.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
@@ -106,33 +115,45 @@ export const AuthProvider = ({ children }) => {
                         authenticated: true
                     });
                 } else {
+                    console.warn('[Auth] Stored token rejected by /api/auth/me (status ' + res.status + '), clearing localStorage');
                     localStorage.removeItem('rescuro_jwt');
                 }
-            } catch {
-                // Keep local state unchanged if network check fails
+            } catch (err) {
+                console.error('[Auth] Network error while verifying session:', err);
+            } finally {
+                setAuthLoading(false);
             }
         }
         verifySession();
     }, []);
 
-    const login = async (username, password) => {
+    const login = async (email, password) => {
+        const trimmedEmail = (email || '').trim().toLowerCase();
+        console.log('[Auth] login() initiated for email:', trimmedEmail);
         try {
+            console.log('[Auth] Sending POST /api/auth/login payload:', { email: trimmedEmail, password: '***' });
             const res = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: username.trim(), password })
+                body: JSON.stringify({ email: trimmedEmail, password })
             });
+
+            console.log('[Auth] POST /api/auth/login response status:', res.status, res.statusText);
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                return { success: false, message: err.detail || 'Invalid credentials. Access denied.' };
+                const errorMsg = err.detail || 'Invalid credentials. Access denied.';
+                console.warn('[Auth] Login rejected by server:', errorMsg);
+                return { success: false, message: errorMsg };
             }
 
             const data = await res.json();
             const token = data.access_token;
+            console.log('[Auth] Login response received. Saving token to localStorage under "rescuro_jwt"...');
             localStorage.setItem('rescuro_jwt', token);
-            const userObj = data.user;
+            console.log('[Auth] Token saved to localStorage successfully.');
 
+            const userObj = data.user;
             const role = userObj.role?.toUpperCase() === 'SUPERVISOR'
                 ? ROLES.SUPERVISOR
                 : (ROLES[userObj.role?.toUpperCase()] || ROLES.LEAD_DISPATCHER);
@@ -146,8 +167,10 @@ export const AuthProvider = ({ children }) => {
                 token: token,
                 authenticated: true
             });
-            return { success: true };
-        } catch {
+            console.log('[Auth] User state updated: authenticated = true, id =', userObj.id, 'role =', role);
+            return { success: true, user: userObj };
+        } catch (err) {
+            console.error('[Auth] Login network/request exception:', err);
             return { success: false, message: 'Server unreachable. Please check connection.' };
         }
     };
@@ -220,6 +243,7 @@ export const AuthProvider = ({ children }) => {
         <AuthContext.Provider value={{
             user,
             currentRole,
+            authLoading,
             login,
             signup,
             logout,

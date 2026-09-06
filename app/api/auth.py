@@ -94,13 +94,33 @@ async def _resolve_user_from_token(token: str) -> Optional[UserOut]:
             if resp.status_code == 200:
                 sb_user = resp.json()
                 meta = sb_user.get("user_metadata") or {}
+                email = sb_user.get("email", "")
+                full_name = meta.get("full_name") or (email.split("@")[0].capitalize() if email else "Dispatcher")
+                role = meta.get("role") or "dispatcher"
+
+                # Check SQLite to see if we have local integer ID to keep local relational FKs intact
+                local_id = None
+                try:
+                    conn = await get_db_connection()
+                    try:
+                        cursor = await conn.execute("SELECT id FROM users WHERE email = ?", (email,))
+                        row = await cursor.fetchone()
+                        if row:
+                            local_id = row["id"]
+                    finally:
+                        await conn.close()
+                except Exception:
+                    pass
+
                 return UserOut(
-                    id=sb_user.get("id"),
-                    email=sb_user.get("email", ""),
-                    full_name=meta.get("full_name") or sb_user.get("email", "").split("@")[0].capitalize(),
-                    role=meta.get("role") or "dispatcher",
+                    id=local_id or sb_user.get("id"),
+                    email=email,
+                    full_name=full_name,
+                    role=role,
                     created_at=str(sb_user.get("created_at") or "")
                 )
+            else:
+                logger.warning("Supabase user validation failed (status %d): %s", resp.status_code, resp.text)
         except Exception as exc:
             logger.warning("Supabase token validation error: %s", exc)
 
@@ -268,7 +288,55 @@ async def login(payload: UserLogin):
             else:
                 err_data = resp.json() if "application/json" in resp.headers.get("content-type", "") else {}
                 err_msg = err_data.get("error_description") or err_data.get("msg") or err_data.get("message") or resp.text
-                logger.warning("Supabase auth failed for %s (status %d): %s", email, resp.status_code, err_msg)
+                err_code = err_data.get("error_code") or err_data.get("code") or err_data.get("error")
+
+                # Diagnostic: Check if Supabase rejected due to unconfirmed email
+                is_unconfirmed = bool(
+                    "not confirmed" in str(err_msg).lower()
+                    or "unconfirmed" in str(err_msg).lower()
+                    or str(err_code).lower() == "email_not_confirmed"
+                )
+
+                # If generic 'Invalid login credentials', query Supabase Admin API (if service key available) to inspect confirmation state
+                service_key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_KEY
+                if service_key and not is_unconfirmed:
+                    try:
+                        admin_url = f"{supabase_url}/auth/v1/admin/users"
+                        admin_headers = {
+                            "apikey": service_key,
+                            "Authorization": f"Bearer {service_key}"
+                        }
+                        async with httpx.AsyncClient(timeout=5.0) as admin_client:
+                            admin_resp = await admin_client.get(admin_url, headers=admin_headers, params={"page": 1, "per_page": 50})
+                        if admin_resp.status_code == 200:
+                            data_body = admin_resp.json()
+                            u_list = data_body.get("users", []) if isinstance(data_body, dict) else (data_body if isinstance(data_body, list) else [])
+                            for u in u_list:
+                                if u.get("email", "").strip().lower() == email:
+                                    if not u.get("email_confirmed_at") and not u.get("confirmed_at"):
+                                        is_unconfirmed = True
+                                        logger.warning(
+                                            "Supabase auth diagnostic: User %s exists in Supabase (id=%s) but email is UNCONFIRMED (email_confirmed_at=None). Supabase password grant masked this as '%s'.",
+                                            email, u.get("id"), err_msg
+                                        )
+                                    else:
+                                        logger.warning(
+                                            "Supabase auth diagnostic: User %s exists in Supabase (id=%s) and email is confirmed, but password verification failed.",
+                                            email, u.get("id")
+                                        )
+                                    break
+                    except Exception as admin_exc:
+                        logger.debug("Supabase admin lookup check warning: %s", admin_exc)
+
+                if is_unconfirmed:
+                    logger.warning(
+                        "Supabase auth rejection for %s: Email is not confirmed. User must confirm email before logging in. (Supabase error: %s)",
+                        email, err_msg
+                    )
+                    detail_msg = "Email not confirmed. Please check your email inbox for the confirmation link or confirm your account in the Supabase dashboard."
+                else:
+                    logger.warning("Supabase auth failed for %s (status %d): %s", email, resp.status_code, err_msg)
+                    detail_msg = f"Supabase auth failed: {err_msg}" if err_msg else "Invalid email or password"
 
                 # Check local SQLite in case this is a pre-seeded developer/test account
                 conn = await get_db_connection()
@@ -297,10 +365,10 @@ async def login(payload: UserLogin):
                 finally:
                     await conn.close()
 
-                # Raise 401 with explicit Supabase reason
+                # Raise 401 with explicit reason (unconfirmed email vs invalid credentials)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Supabase auth failed: {err_msg}" if err_msg else "Invalid email or password"
+                    detail=detail_msg
                 )
 
         except HTTPException:

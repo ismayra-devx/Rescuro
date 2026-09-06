@@ -99,7 +99,22 @@ const DashboardShell = () => {
 
 // ── Root App: Auth gate ───────────────────────────────────────────────────────
 export const App = () => {
-    const { user } = useAuth();
+    const { user, authLoading } = useAuth();
+
+    console.log('[App] Auth gate check - authLoading:', authLoading, '| authenticated:', user?.authenticated, '| user:', user?.name || user?.id);
+
+    if (authLoading) {
+        return (
+            <div className="fixed inset-0 flex items-center justify-center bg-[#F8FAFC]">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-[11px] font-mono tracking-widest text-slate-500 uppercase">
+                        Verifying Secure Session...
+                    </span>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="relative min-h-screen">
@@ -110,7 +125,7 @@ export const App = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.45, ease: "easeOut" }}
+                        transition={{ duration: 0.35, ease: "easeOut" }}
                     >
                         <DashboardShell />
                     </motion.div>
@@ -119,7 +134,7 @@ export const App = () => {
                         key="login-view-wrapper"
                         initial={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.35, ease: "easeInOut" }}
+                        transition={{ duration: 0.25, ease: "easeInOut" }}
                         className="fixed inset-0 z-50"
                     >
                         <LoginView />
