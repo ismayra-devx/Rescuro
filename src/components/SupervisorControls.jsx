@@ -5,31 +5,35 @@ import { RBACGuard } from './RBACGuard';
 
 export const SupervisorControls = ({ onToast }) => {
     const { user, currentRole } = useAuth();
-    const { dispatchAction } = useLiveStream();
+    const { dispatchAction, activeCalls } = useLiveStream();
 
-    const [isTakeoverActive, setIsTakeoverActive] = useState(false);
+    const targetCall = (activeCalls || []).find(c => c.source === 'exotel' || c.id?.startsWith('EXO-') || c.isLive) || (activeCalls || [])[0];
+    const targetCallId = targetCall?.id || 'C-1021';
+    const isTakeoverActive = !!targetCall?.supervisorOverridden;
+
     const [isAiMuted, setIsAiMuted] = useState(false);
     const [isDispatched, setIsDispatched] = useState(false);
 
     const handleTakeover = async () => {
         const nextState = !isTakeoverActive;
-        setIsTakeoverActive(nextState);
         await dispatchAction(nextState ? 'SUPERVISOR_TAKEOVER' : 'RELEASE_TO_AI', {
-            callId: 'C-1021',
+            callId: targetCallId,
+            session_id: targetCallId,
             notes: nextState ? 'Supervisor manual audio line intervention' : 'Handed back to AI'
         }, user.supervisorId);
 
         onToast(
             nextState 
-                ? `Supervisor ${user.supervisorId || 'SUP-004'} intervened and took over active audio channel` 
-                : "Call control returned to AI Autonomous Voice Engine",
+                ? `Supervisor ${user.supervisorId || 'SUP-004'} intervened and took over active audio channel (${targetCallId})` 
+                : `Call ${targetCallId} control returned to AI Autonomous Voice Engine`,
             "headset"
         );
     };
 
     const handleWhisper = async () => {
         await dispatchAction('WHISPER_PROMPT_INJECT', {
-            callId: 'C-1021',
+            callId: targetCallId,
+            session_id: targetCallId,
             promptText: 'Direct ambulance to Gate 4 of Sector 18 metro station'
         }, user.supervisorId);
         onToast("Whisper Audio Prompt injected into AI Assistant pipeline", "mic");
@@ -38,7 +42,8 @@ export const SupervisorControls = ({ onToast }) => {
     const handleDispatch = async () => {
         setIsDispatched(true);
         await dispatchAction('PRIORITY_UNITS_DISPATCH', {
-            callId: 'C-1021',
+            callId: targetCallId,
+            session_id: targetCallId,
             units: ['PCR-14', 'Ambulance Amb-02'],
             location: 'Sector 18, Noida'
         }, user.supervisorId);
@@ -49,7 +54,8 @@ export const SupervisorControls = ({ onToast }) => {
         const nextMute = !isAiMuted;
         setIsAiMuted(nextMute);
         await dispatchAction(nextMute ? 'MUTE_AI_ENGINE' : 'UNMUTE_AI_ENGINE', {
-            callId: 'C-1021'
+            callId: targetCallId,
+            session_id: targetCallId
         }, user.supervisorId);
         onToast(nextMute ? "AI Voice Engine Muted (Silence Mode)" : "AI Voice Engine Unmuted", "mute");
     };

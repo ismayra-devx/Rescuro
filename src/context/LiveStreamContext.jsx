@@ -243,27 +243,34 @@ export const LiveStreamProvider = ({ children }) => {
 
         const handleNewCall = (msg) => {
             const payload = msg.payload || msg;
-            const sessionId = msg.session_id || payload.session_id || `C-${Date.now().toString().slice(-4)}`;
+            const sessionId = payload.session_id || payload.call_id || msg.session_id || msg.call_id;
+            if (!sessionId) return;
             setActiveCalls(prev => {
-                if (prev.some(c => c.id === sessionId)) return prev;
-                return [
-                    {
-                        id: sessionId,
-                        caller: payload.from || payload.caller || '+91 Live Line',
-                        maskedId: '****' + (sessionId.slice(-4)),
-                        location: payload.location || 'Realtime Stream Line',
-                        incident: payload.incident || 'Incoming Emergency Line',
-                        agent: 'Agent Nova-Triage',
-                        lang: 'Hinglish',
-                        durationSec: 0,
-                        risk: 'HIGH',
-                        riskColor: 'rose',
-                        urgency: 'HIGH',
-                        snippet: 'Live voice session connected...',
-                        supervisorOverridden: false
-                    },
-                    ...prev
-                ];
+                const existingIdx = prev.findIndex(c => c.id === sessionId || c.id === payload.call_id || c.id === payload.session_id);
+                const callData = {
+                    id: sessionId,
+                    call_id: sessionId,
+                    caller: payload.caller || payload.from || '+91 Live Line',
+                    maskedId: '****' + (sessionId.slice(-4)),
+                    location: payload.location || 'Realtime Exotel Voice Line',
+                    incident: payload.incident || payload.category || 'Active Emergency Line',
+                    agent: 'Agent Nova-Triage',
+                    lang: payload.language || 'Hinglish',
+                    durationSec: 0,
+                    risk: 'HIGH',
+                    riskColor: 'rose',
+                    urgency: 'HIGH',
+                    snippet: 'Live voice session connected...',
+                    supervisorOverridden: false,
+                    source: payload.source || 'exotel',
+                    isLive: true
+                };
+                if (existingIdx >= 0) {
+                    const updated = [...prev];
+                    updated[existingIdx] = { ...updated[existingIdx], ...callData };
+                    return updated;
+                }
+                return [callData, ...prev];
             });
         };
 
@@ -364,6 +371,8 @@ export const LiveStreamProvider = ({ children }) => {
         const unsubTr4 = wsService.on('TTS_READY', (m) => handleTranscript({ ...m, isAi: true }));
         const unsubNewCall = wsService.on('NEW_CALL', handleNewCall);
         const unsubCallStarted = wsService.on('CALL_STARTED', handleNewCall);
+        const unsubIncoming = wsService.on('INCOMING_CALL', handleNewCall);
+        const unsubExotelStart = wsService.on('EXOTEL_CALL_STARTED', handleNewCall);
         const unsubTriage = wsService.on('TRIAGE_UPDATE', handleTriageUpdate);
         const unsubTriageComp = wsService.on('TRIAGE_COMPLETED', handleTriageUpdate);
         const unsubEmergAlert = wsService.on('EMERGENCY_ALERT', handleTriageUpdate);
@@ -382,6 +391,8 @@ export const LiveStreamProvider = ({ children }) => {
             unsubTr4();
             unsubNewCall();
             unsubCallStarted();
+            unsubIncoming();
+            unsubExotelStart();
             unsubTriage();
             unsubTriageComp();
             unsubEmergAlert();
@@ -423,59 +434,79 @@ export const LiveStreamProvider = ({ children }) => {
 
     // Interactive Action Handlers (Reactive across all views)
     const takeOverCall = useCallback((callId, openModal = true) => {
-        setActiveCalls(prev => prev.map(c => {
-            if (c.id === callId) {
-                return {
-                    ...c,
-                    originalRisk: c.originalRisk || c.risk,
-                    supervisorOverridden: true,
-                    supervisorId: 'SUP-004',
-                    status: 'Supervisor Active (SUP-004)',
-                    risk: 'REVIEW',
-                    riskColor: 'amber'
-                };
+        let targetId = callId;
+        setActiveCalls(prev => {
+            const liveCall = prev.find(c => c.isLive || c.source === 'exotel' || c.id?.startsWith('EXO-'));
+            if ((!targetId || targetId === 'C-1021') && liveCall) {
+                targetId = liveCall.id;
             }
-            return c;
-        }));
+            return prev.map(c => {
+                if (c.id === callId || c.id === targetId) {
+                    return {
+                        ...c,
+                        originalRisk: c.originalRisk || c.risk,
+                        supervisorOverridden: true,
+                        supervisorId: 'SUP-004',
+                        status: 'Supervisor Active (SUP-004)',
+                        risk: 'REVIEW',
+                        riskColor: 'amber'
+                    };
+                }
+                return c;
+            });
+        });
+        const finalId = targetId || callId || 'C-1021';
         if (openModal) {
-            setTakeoverModalCallId(callId);
+            setTakeoverModalCallId(finalId);
         }
-        wsService.sendAction('SUPERVISOR_TAKEOVER', { callId, notes: 'Supervisor manual audio line intervention via Rescuro Console' });
+        wsService.sendAction('SUPERVISOR_TAKEOVER', {
+            callId: finalId,
+            session_id: finalId,
+            notes: 'Supervisor manual audio line intervention via Rescuro Console'
+        });
         try {
             const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
             if (token) {
                 fetch('/supervisor/override', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ session_id: callId, reason: 'Supervisor manual audio line intervention via Rescuro Console' })
+                    body: JSON.stringify({ session_id: finalId, reason: 'Supervisor manual audio line intervention via Rescuro Console' })
                 }).catch(() => {});
             }
         } catch (_) {}
     }, []);
 
     const releaseCallToAi = useCallback((callId) => {
-        setActiveCalls(prev => prev.map(c => {
-            if (c.id === callId) {
-                return {
-                    ...c,
-                    supervisorOverridden: false,
-                    status: 'AI Autonomous',
-                    risk: c.originalRisk || (c.id === 'C-1021' || c.id === 'C-1022' ? 'HIGH' : 'SAFE'),
-                    riskColor: (c.originalRisk === 'HIGH' || c.id === 'C-1021' || c.id === 'C-1022') ? 'rose' : 'blue'
-                };
+        let targetId = callId;
+        setActiveCalls(prev => {
+            const liveCall = prev.find(c => c.isLive || c.source === 'exotel' || c.id?.startsWith('EXO-'));
+            if ((!targetId || targetId === 'C-1021') && liveCall) {
+                targetId = liveCall.id;
             }
-            return c;
-        }));
+            return prev.map(c => {
+                if (c.id === callId || c.id === targetId) {
+                    return {
+                        ...c,
+                        supervisorOverridden: false,
+                        status: 'AI Autonomous',
+                        risk: c.originalRisk || (c.id === 'C-1021' || c.id === 'C-1022' ? 'HIGH' : 'SAFE'),
+                        riskColor: (c.originalRisk === 'HIGH' || c.id === 'C-1021' || c.id === 'C-1022') ? 'rose' : 'blue'
+                    };
+                }
+                return c;
+            });
+        });
+        const finalId = targetId || callId || 'C-1021';
         setIsSupervisorOnHold(false);
-        setTakeoverModalCallId(prev => prev === callId ? null : prev);
-        wsService.sendAction('RELEASE_TO_AI', { callId });
+        setTakeoverModalCallId(prev => (prev === callId || prev === finalId) ? null : prev);
+        wsService.sendAction('RELEASE_TO_AI', { callId: finalId, session_id: finalId });
         try {
             const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
             if (token) {
                 fetch('/supervisor/release', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ session_id: callId, notes: 'Supervisor returned call to autonomous AI' })
+                    body: JSON.stringify({ session_id: finalId, notes: 'Supervisor returned call to autonomous AI' })
                 }).catch(() => {});
             }
         } catch (_) {}

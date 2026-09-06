@@ -162,7 +162,7 @@ export const TakeoverModal = ({ onToast }) => {
         }
 
         // Notify backend that supervisor console is actively bridging into call
-        wsService.sendAction('SUPERVISOR_TAKEOVER', { callId: takeoverModalCallId });
+        wsService.sendAction('SUPERVISOR_TAKEOVER', { callId: takeoverModalCallId, session_id: takeoverModalCallId });
 
         let isMounted = true;
 
@@ -221,6 +221,8 @@ export const TakeoverModal = ({ onToast }) => {
                         const b64 = pcm16ToBase64(pcm16);
                         wsService.sendAction('SUPERVISOR_AUDIO_CHUNK', {
                             call_id: takeoverModalCallId,
+                            callId: takeoverModalCallId,
+                            session_id: takeoverModalCallId,
                             audio: b64
                         });
                     }
@@ -245,7 +247,16 @@ export const TakeoverModal = ({ onToast }) => {
             if (!isMounted) return;
             const payload = msg.payload || msg;
             const callId = msg.session_id || payload.call_id || payload.session_id;
-            if (callId && callId !== takeoverModalCallId) return;
+            if (callId && takeoverModalCallId && callId !== takeoverModalCallId) {
+                const isMatch = (
+                    callId.includes(takeoverModalCallId) ||
+                    takeoverModalCallId.includes(callId) ||
+                    callId.replace(/^EXO-/, '') === takeoverModalCallId.replace(/^EXO-/, '') ||
+                    takeoverModalCallId === 'C-1021' ||
+                    callId.startsWith('EXO-')
+                );
+                if (!isMatch) return;
+            }
 
             const b64Audio = payload.audio || msg.audio;
             if (!b64Audio) return;

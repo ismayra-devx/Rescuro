@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { 
     PhoneCall, 
     AlertTriangle, 
@@ -31,18 +31,20 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
     const [isMuted, setIsMuted] = useState(false);
     const [dispatched, setDispatched] = useState(false);
 
-    const isC1021Overridden = activeCalls?.find(c => c.id === 'C-1021')?.supervisorOverridden;
+    const primaryCall = (activeCalls || []).find(c => c.source === 'exotel' || c.id?.startsWith('EXO-') || c.isLive) || (activeCalls || [])[0];
+    const primaryCallId = primaryCall?.id || 'C-1021';
+    const isPrimaryOverridden = !!primaryCall?.supervisorOverridden;
 
     const highRiskCount = (activeCalls || []).filter(c => c.risk === 'HIGH').length;
     const p1AlertsCount = (alerts || []).length;
 
     const handleTakeOver = () => {
-        if (!isC1021Overridden) {
-            takeOverCall('C-1021');
-            if (onToast) onToast('Supervisor SUP-004 took over Line C-1021 (Live Audio Linked)', 'zap');
+        if (!isPrimaryOverridden) {
+            takeOverCall(primaryCallId);
+            if (onToast) onToast(`Supervisor SUP-004 took over Line ${primaryCallId} (Live Audio Linked)`, 'zap');
         } else {
-            releaseCallToAi('C-1021');
-            if (onToast) onToast('Call C-1021 released back to Autonomous AI Voice Engine', 'check');
+            releaseCallToAi(primaryCallId);
+            if (onToast) onToast(`Call ${primaryCallId} released back to Autonomous AI Voice Engine`, 'check');
         }
     };
 
@@ -172,7 +174,7 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                             <span>Live Call Transcription</span>
                         </div>
                         <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200 transition-colors flex items-center gap-1.5">
-                            Line C-1021 <Maximize2 className="w-3 h-3" />
+                            Line {primaryCallId} <Maximize2 className="w-3 h-3" />
                         </span>
                     </div>
 
@@ -232,7 +234,7 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                             <Headphones className="w-3 h-3 text-slate-500" /> Patch In
                         </button>
                         <button
-                            onClick={() => onToast && onToast('Whisper channel opened for Line C-1021', 'zap')}
+                            onClick={() => onToast && onToast(`Whisper channel opened for Line ${primaryCallId}`, 'zap')}
                             className="flex-1 py-1.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] flex items-center justify-center gap-1 transition-colors border border-blue-100"
                         >
                             <MessageSquare className="w-3 h-3 text-blue-500" /> Whisper
@@ -359,12 +361,12 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                         <button
                             onClick={handleTakeOver}
                             className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-all ${
-                                isC1021Overridden
+                                isPrimaryOverridden
                                     ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
                                     : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
                             }`}
                         >
-                            <span>{isC1021Overridden ? 'Release Line C-1021 Back to AI' : 'Take Over Call (SUP-004)'}</span>
+                            <span>{isPrimaryOverridden ? `Release Line ${primaryCallId} Back to AI` : 'Take Over Call (SUP-004)'}</span>
                         </button>
                         <button
                             onClick={handleDispatch}

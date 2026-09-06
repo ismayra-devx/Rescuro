@@ -205,6 +205,24 @@ async def exotel_media_websocket(websocket: WebSocket):
                             sess.supervisor_requested = True
                             sess.status = SessionStatus.HUMAN_TAKEOVER
 
+                    # Notify supervisor dashboard immediately to open takeover modal
+                    await dashboard_manager.broadcast("SUPERVISOR_REQUESTED", {
+                        "session_id": active_session,
+                        "call_id": active_session,
+                        "stream_id": stream_sid,
+                        "stream_sid": stream_sid,
+                        "priority": "CRITICAL",
+                        "reason": "Caller verbally requested human supervisor takeover."
+                    })
+                    await dashboard_manager.broadcast("SUPERVISOR_CALL_TAKEOVER_REQUEST", {
+                        "session_id": active_session,
+                        "call_id": active_session,
+                        "stream_id": stream_sid,
+                        "stream_sid": stream_sid,
+                        "priority": "CRITICAL",
+                        "reason": "Caller verbally requested human supervisor takeover."
+                    })
+
                     is_hindi = any(w in t_lower for w in ["baat", "karni", "mujhe", "hai", "karo", "bulao", "se"])
                     response_text = (
                         "Aapko emergency supervisor se connect kiya ja raha hai. Kripya line par bane rahein."
@@ -373,18 +391,19 @@ async def exotel_media_websocket(websocket: WebSocket):
                         "transcript": transcript,
                         "category": orch_result.get("category"),
                     })
-            # Guardrail: Check if supervisor has taken over this call
+            # Guardrail 1: Check if supervisor has taken over this call BEFORE synthesizing TTS
             session_obj = orchestrator.get_session(active_session) if orchestrator and active_session else None
             is_takeover = (
-                (session_obj and (session_obj.tts_halted or session_obj.status.value in ("supervisor_connected", "HUMAN_TAKEOVER")))
+                is_human_takeover
+                or (session_obj and (session_obj.tts_halted or session_obj.status.value in ("supervisor_connected", "HUMAN_TAKEOVER")))
                 or (active_session and pipeline.is_session_overridden(active_session))
             )
-            # If takeover is active and this turn is NOT the initial transition turn, suppress automated TTS
             if is_takeover and not is_supervisor_req:
-                logger.info(
-                    "SUPERVISOR TAKEOVER ACTIVE: Suppressing automated TTS for session %s (supervisor in control)",
-                    active_session
-                )
+                logger.info("AI TTS BLOCKED DURING TAKEOVER: session=%s (takeover active before TTS synthesis)", active_session)
+                try:
+                    await websocket.send_text(json.dumps({"event": "clear", "stream_sid": stream_sid}))
+                except Exception:
+                    pass
                 return
 
             await dashboard_manager.broadcast("TTS_READY", {
@@ -397,6 +416,21 @@ async def exotel_media_websocket(websocket: WebSocket):
 
             # Step 4: Synthesize Speech (TTS)
             ulaw_audio = await pipeline.synthesize_speech(response_text)
+
+            # Guardrail 2: Check if supervisor took over DURING TTS synthesis
+            session_obj = orchestrator.get_session(active_session) if orchestrator and active_session else None
+            if (
+                is_human_takeover
+                or (session_obj and (session_obj.tts_halted or session_obj.status.value in ("supervisor_connected", "HUMAN_TAKEOVER")))
+                or (active_session and pipeline.is_session_overridden(active_session))
+            ) and not is_supervisor_req:
+                logger.info("AI TTS BLOCKED DURING TAKEOVER: session=%s (takeover active post-synthesis, pre-send)", active_session)
+                try:
+                    await websocket.send_text(json.dumps({"event": "clear", "stream_sid": stream_sid}))
+                except Exception:
+                    pass
+                return
+
             outbound_pcm16_audio = ulaw_to_pcm16(ulaw_audio)
             outbound_b64 = base64.b64encode(outbound_pcm16_audio).decode("ascii")
             logger.info("TTS GENERATED (pcm16_bytes=%d)", len(outbound_pcm16_audio))
@@ -408,6 +442,19 @@ async def exotel_media_websocket(websocket: WebSocket):
             active_mark_id = mark_id
             # Duration + 350ms buffer for transport jitter
             playback_expected_end_time = time.time() + playback_duration_sec + 0.35
+
+            # Guardrail 3: Final check right before sending media frame
+            if (
+                is_human_takeover
+                or (session_obj and session_obj.tts_halted)
+                or (active_session and pipeline.is_session_overridden(active_session))
+            ) and not is_supervisor_req:
+                logger.info("AI TTS BLOCKED DURING TAKEOVER: session=%s (immediate pre-send guard)", active_session)
+                try:
+                    await websocket.send_text(json.dumps({"event": "clear", "stream_sid": stream_sid}))
+                except Exception:
+                    pass
+                return
 
             # Step 6: Send Outbound Media Frame to Exotel
             outbound_message = {
@@ -475,8 +522,20 @@ async def exotel_media_websocket(websocket: WebSocket):
             # ------------------------------------------------------------------
             elif event_type == "start":
                 start_data = msg.get("start", {})
-                stream_sid = msg.get("stream_sid") or start_data.get("stream_sid") or "exo_stream"
-                call_sid = start_data.get("call_sid") or start_data.get("callSid") or msg.get("call_sid") or stream_sid
+                stream_sid = (
+                    msg.get("stream_sid")
+                    or msg.get("streamSid")
+                    or start_data.get("stream_sid")
+                    or start_data.get("streamSid")
+                    or "exo_stream"
+                )
+                call_sid = (
+                    start_data.get("call_sid")
+                    or start_data.get("callSid")
+                    or msg.get("call_sid")
+                    or msg.get("callSid")
+                    or stream_sid
+                )
                 from_number = start_data.get("from") or start_data.get("caller") or "Exotel Caller"
 
                 session_id = f"EXO-{call_sid}"
@@ -485,7 +544,7 @@ async def exotel_media_websocket(websocket: WebSocket):
                 logger.info("CALL STARTED (session_id=%s, stream_sid=%s)", session_id, stream_sid)
 
                 # Register active Exotel stream in core audio bridge
-                audio_bridge.register_exotel_call(session_id, websocket, stream_sid)
+                audio_bridge.register_exotel_call(session_id, websocket, stream_sid, call_sid=call_sid)
 
                 # Persist call start in shared call_sessions table
                 await create_call_session(
@@ -510,23 +569,31 @@ async def exotel_media_websocket(websocket: WebSocket):
                 await dashboard_manager.broadcast("INCOMING_CALL", {
                     "call_id": session_id,
                     "session_id": session_id,
+                    "stream_id": stream_sid,
+                    "stream_sid": stream_sid,
                     "caller": from_number,
                     "source": "exotel",
                     "status": "AWAITING_CONSENT"
                 })
                 await dashboard_manager.broadcast("CALL_STARTED", {
                     "stream_id": stream_sid,
+                    "stream_sid": stream_sid,
                     "call_id": session_id,
+                    "session_id": session_id,
                     "caller": from_number,
                     "source": "exotel",
-                    "event": "start"
+                    "event": "start",
+                    "status": "AWAITING_CONSENT"
                 })
                 await dashboard_manager.broadcast("EXOTEL_CALL_STARTED", {
                     "stream_id": stream_sid,
+                    "stream_sid": stream_sid,
                     "call_id": session_id,
+                    "session_id": session_id,
                     "caller": from_number,
                     "source": "exotel",
-                    "event": "start"
+                    "event": "start",
+                    "status": "AWAITING_CONSENT"
                 })
 
                 is_test_env = bool(os.environ.get("PYTEST_CURRENT_TEST"))

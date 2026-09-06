@@ -483,8 +483,9 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                             <button
                                 onClick={() => {
                                     setIsOverridden(true);
-                                    takeOverCall('C-1021');
-                                    if (onToast) onToast('Supervisor SUP-004 took over Line C-1021', 'phone');
+                                    const targetId = (activeCalls || []).find(c => c.source === 'exotel' || c.id?.startsWith('EXO-') || c.isLive)?.id || 'C-1021';
+                                    takeOverCall(targetId);
+                                    if (onToast) onToast(`Supervisor SUP-004 took over Line ${targetId}`, 'phone');
                                 }}
                                 disabled={isOverridden}
                                 className={`py-2 px-4 rounded-xl font-bold text-xs flex items-center justify-center transition-all ${

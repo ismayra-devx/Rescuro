@@ -11,7 +11,7 @@ const getIncidentIcon = (title = '') => {
 };
 
 export const AlertsView = ({ onToast }) => {
-    const { alerts, resolveAlert, takeOverCall } = useLiveStream();
+    const { alerts, resolveAlert, takeOverCall, activeCalls } = useLiveStream();
     const [broadcastState, setBroadcastState] = useState('idle'); // 'idle' | 'transmitting' | 'sent'
 
     const handleBroadcast = () => {
@@ -123,7 +123,11 @@ export const AlertsView = ({ onToast }) => {
 
                             <div className="flex items-center gap-2 flex-shrink-0 self-end lg:self-center">
                                 <button
-                                    onClick={() => { takeOverCall('C-1021'); onToast && onToast(`Supervisor intervened for ${alert.id}`, 'phone'); }}
+                                    onClick={() => {
+                                        const targetId = alert.callId || alert.call_id || (activeCalls || []).find(c => c.source === 'exotel' || c.id?.startsWith('EXO-'))?.id || 'C-1021';
+                                        takeOverCall(targetId);
+                                        onToast && onToast(`Supervisor intervened for ${alert.id} (${targetId})`, 'phone');
+                                    }}
                                     className="tactile-btn py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-mono font-bold text-xs shadow-[0_2px_0_#b45309] border-t border-amber-300/60 flex items-center justify-center transition-all"
                                 >
                                     Intervene

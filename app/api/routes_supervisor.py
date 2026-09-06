@@ -7,6 +7,7 @@ from app.api.auth import get_current_supervisor, UserOut
 from app.models.session import SessionStatus
 from app.models.events import EventType
 from app.services import pipeline
+from app.services.audio_bridge import audio_bridge
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Supervisor & Sessions"])
@@ -51,46 +52,77 @@ async def supervisor_override(
     if not body.session_id or not body.session_id.strip():
         raise HTTPException(status_code=422, detail="Valid session_id is required.")
 
-    session = orchestrator.get_session(body.session_id.strip())
+    raw_call_id = body.session_id.strip()
+    logger.info("SUPERVISOR TAKEOVER REQUEST")
+    logger.info("DASHBOARD CALL ID: %s", raw_call_id)
+
+    resolved_session_id = audio_bridge.resolve_session_id(raw_call_id) or raw_call_id
+    logger.info("RESOLVED RESCURO SESSION ID: %s", resolved_session_id)
+
+    session = orchestrator.get_session(resolved_session_id)
+    if not session:
+        session = orchestrator.get_session(raw_call_id)
     if not session:
         for s in orchestrator._sessions.values():
-            if s.call_sid == body.session_id.strip():
+            if s.call_sid == resolved_session_id or s.call_sid == raw_call_id:
                 session = s
                 break
+    if not session and len(orchestrator._sessions) == 1:
+        session = next(iter(orchestrator._sessions.values()))
 
-    if not session:
+    if not session and not audio_bridge.has_exotel_stream(resolved_session_id):
         raise HTTPException(status_code=404, detail=f"Session '{body.session_id}' not found.")
+
+    target_session_id = session.session_id if session else resolved_session_id
+    exotel_info = audio_bridge.get_exotel_stream_info(target_session_id)
+    stream_sid = exotel_info.get("stream_sid") if exotel_info else None
+    logger.info("EXOTEL SESSION ID: %s", target_session_id)
+    logger.info("EXOTEL STREAM SID: %s", stream_sid)
 
     # 2. Execute takeover & media bridge check
     override_reason = body.reason or f"Takeover by {current_user.email} [{current_user.role}]"
-    updated_session = await orchestrator.supervisor_override(
-        session_id=session.session_id,
-        reason=override_reason,
-    )
+    if session:
+        updated_session = await orchestrator.supervisor_override(
+            session_id=session.session_id,
+            reason=override_reason,
+        )
+        session.tts_halted = True
+        session.supervisor_requested = True
+    else:
+        updated_session = None
 
     # 3. Mark session in core pipeline to guarantee zero race condition AI speech
-    pipeline.mark_session_overridden(session.session_id, True)
+    pipeline.mark_session_overridden(target_session_id, True)
+    pipeline.mark_session_overridden(raw_call_id, True)
+
+    logger.info("HUMAN_TAKEOVER ACTIVE: session=%s", target_session_id)
+
+    # 4. Flush any currently playing TTS on caller's phone
+    await audio_bridge.clear_exotel_audio(target_session_id)
 
     logger.info(
         "SUPERVISOR TOOK OVER call session_id=%s by %s [%s]",
-        session.session_id, current_user.email, current_user.role
+        target_session_id, current_user.email, current_user.role
     )
 
-    media_bridge = updated_session.media_bridge or {}
+    media_bridge = (updated_session.media_bridge if updated_session else None) or {
+        "connected": bool(exotel_info),
+        "stream_sid": stream_sid
+    }
 
-    # 4. Expose real connection state and supervisor audit info
+    # 5. Expose real connection state and supervisor audit info
     return {
         "status": "success",
-        "session_id": updated_session.session_id,
-        "session_status": updated_session.status.value,
-        "tts_halted": updated_session.tts_halted,
-        "reason": updated_session.supervisor_takeover_reason,
+        "session_id": target_session_id,
+        "session_status": (updated_session.status.value if updated_session else SessionStatus.SUPERVISOR_CONNECTED.value),
+        "tts_halted": True,
+        "reason": override_reason,
         "supervisor": {
             "id": current_user.id,
             "email": current_user.email,
             "role": current_user.role,
         },
-        "media_bridge_connected": media_bridge.get("connected", False),
+        "media_bridge_connected": media_bridge.get("connected", False) or bool(exotel_info),
         "media_bridge": media_bridge,
     }
 
@@ -107,15 +139,16 @@ async def supervisor_release(
     """
     orchestrator = request.app.state.orchestrator
 
-    if not body.session_id or not body.session_id.strip():
-        raise HTTPException(status_code=422, detail="Valid session_id is required.")
-
-    session = orchestrator.get_session(body.session_id.strip())
+    raw_id = body.session_id.strip()
+    resolved_id = audio_bridge.resolve_session_id(raw_id) or raw_id
+    session = orchestrator.get_session(resolved_id) or orchestrator.get_session(raw_id)
     if not session:
         for s in orchestrator._sessions.values():
-            if s.call_sid == body.session_id.strip():
+            if s.call_sid == resolved_id or s.call_sid == raw_id:
                 session = s
                 break
+    if not session and len(orchestrator._sessions) == 1:
+        session = next(iter(orchestrator._sessions.values()))
 
     if not session:
         raise HTTPException(status_code=404, detail=f"Session '{body.session_id}' not found.")
