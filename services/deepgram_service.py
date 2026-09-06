@@ -32,10 +32,31 @@ class TranscriptChunk(BaseModel):
     speaker: str = "caller"
 
 
+EMERGENCY_KEYWORDS: Dict[str, int] = {
+    "ambulance": 3,
+    "emergency": 3,
+    "accident": 2,
+    "injured": 2,
+    "injury": 2,
+    "fire": 2,
+    "police": 2,
+    "dispatch": 2,
+    "medical": 2,
+    "hospital": 2,
+    "rescue": 2,
+    "unconscious": 2,
+    "bleeding": 2,
+    "collision": 2,
+    "help": 2,
+}
+
+
 class DeepgramService:
     """
-    Streaming transcription service powered by Deepgram Nova-2 via WebSocket and REST.
-    Supports linear16 (PCM16 8kHz), mulaw (G.711 u-law), and configurable languages.
+    Streaming transcription service powered by Deepgram Nova-3 (with Nova-2 fallback)
+    via WebSocket and REST.
+    Optimized for Indian English (en-IN), linear16 PCM, domain emergency keyword boosting,
+    endpointing (300ms), and utterance_end_ms (1000ms).
     """
 
     def __init__(self):
@@ -57,27 +78,38 @@ class DeepgramService:
         self,
         sample_rate: int = 8000,
         encoding: str = "linear16",
-        language: Optional[str] = None
+        language: Optional[str] = None,
+        model: Optional[str] = None,
+        endpointing: int = 300,
+        utterance_end_ms: int = 1000,
     ) -> str:
         """
-        Builds query parameters for Deepgram Nova-2 streaming WebSocket.
-        Uses endpointing=350ms for conversational turn detection.
+        Builds query parameters for Deepgram streaming WebSocket.
+        Applies nova-3 tier (or fallback), endpointing=300ms, utterance_end_ms=1000ms,
+        en-IN language, punctuation, smart formatting, and emergency keyword boosting.
         """
+        chosen_model = model or getattr(settings, "DEEPGRAM_MODEL", "nova-3")
         params = [
-            "model=nova-2",
+            f"model={chosen_model}",
             "smart_format=true",
+            "punctuate=true",
             "interim_results=true",
-            "endpointing=350",
+            f"endpointing={endpointing}",
+            f"utterance_end_ms={utterance_end_ms}",
             f"sample_rate={sample_rate}",
             f"encoding={encoding}",
         ]
-        lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", None)
+        lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
         if lang:
             params.append(f"language={lang}")
-            if lang == "hi":
+            if lang in ("hi", "en-IN"):
                 params.append("extra=code_switch:true")
         else:
-            params.append("language=en")
+            params.append("language=en-IN")
+
+        # Emergency dispatch keyword boosting
+        for kw, weight in EMERGENCY_KEYWORDS.items():
+            params.append(f"keywords={kw}:{weight}")
 
         return "&".join(params)
 
@@ -90,10 +122,13 @@ class DeepgramService:
         language: Optional[str] = None
     ) -> AsyncGenerator[TranscriptChunk, None]:
         """
-        Connects directly to Deepgram Nova-2 streaming WebSocket, pipes audio bytes,
+        Connects directly to Deepgram streaming WebSocket, pipes audio bytes,
         and yields transcript chunks with per-turn speech_final markers.
+        Attempts nova-3 first, falling back to nova-2 if nova-3 is unavailable.
         """
         key = self.api_key
+        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
+
         if not key or key.startswith("your_"):
             logger.debug("Deepgram API key not configured; mock streaming generator waiting for audio stream.")
             chunks_received = 0
@@ -103,9 +138,9 @@ class DeepgramService:
             if chunks_received > 0:
                 chunk_obj = TranscriptChunk(
                     text="Emergency, I need assistance immediately.",
-                    confidence=0.92,
+                    confidence=0.94,
                     is_final=True,
-                    language="en",
+                    language=target_lang,
                     speech_final=True
                 )
                 if on_chunk_callback:
@@ -113,13 +148,22 @@ class DeepgramService:
                 yield chunk_obj
             return
 
-        query_str = self._get_query_params(sample_rate=sample_rate, encoding=encoding, language=language)
+        model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
+        query_str = self._get_query_params(
+            sample_rate=sample_rate,
+            encoding=encoding,
+            language=target_lang,
+            model=model_tier
+        )
         ws_endpoint = f"{DEEPGRAM_WS_URL}?{query_str}"
         headers = {"Authorization": f"Token {key}"}
 
-        try:
-            async with websockets.connect(ws_endpoint, extra_headers=headers) as ws:
-                logger.info("Connected to Deepgram Nova-2 streaming WebSocket (encoding=%s, rate=%d).", encoding, sample_rate)
+        async def _run_ws(endpoint: str, active_model: str):
+            async with websockets.connect(endpoint, extra_headers=headers) as ws:
+                logger.info(
+                    "Connected to Deepgram streaming WebSocket (model=%s, lang=%s, encoding=%s, rate=%d).",
+                    active_model, target_lang, encoding, sample_rate
+                )
 
                 async def sender():
                     try:
@@ -130,7 +174,6 @@ class DeepgramService:
                     except Exception as exc:
                         logger.error("Error sending audio to Deepgram: %s", exc)
 
-                import asyncio
                 send_task = asyncio.create_task(sender())
 
                 try:
@@ -150,7 +193,7 @@ class DeepgramService:
                             confidence = float(best_alt.get("confidence", 0.85))
                             is_final = bool(data.get("is_final", False))
                             speech_final = bool(data.get("speech_final", False))
-                            detected_lang = best_alt.get("languages", ["en"])[0] if best_alt.get("languages") else "en"
+                            detected_lang = best_alt.get("languages", [target_lang])[0] if best_alt.get("languages") else target_lang
 
                             chunk_obj = TranscriptChunk(
                                 text=text,
@@ -168,6 +211,29 @@ class DeepgramService:
                 finally:
                     send_task.cancel()
 
+        try:
+            async for chunk in _run_ws(ws_endpoint, model_tier):
+                yield chunk
+        except websockets.exceptions.InvalidStatusCode as ws_err:
+            if ws_err.status_code in (400, 404) and model_tier != "nova-2":
+                logger.warning(
+                    "Deepgram model '%s' failed with status %d; retrying fallback to 'nova-2'.",
+                    model_tier, ws_err.status_code
+                )
+                fallback_query = self._get_query_params(
+                    sample_rate=sample_rate,
+                    encoding=encoding,
+                    language=target_lang,
+                    model="nova-2"
+                )
+                fallback_endpoint = f"{DEEPGRAM_WS_URL}?{fallback_query}"
+                try:
+                    async for chunk in _run_ws(fallback_endpoint, "nova-2"):
+                        yield chunk
+                except Exception as fallback_exc:
+                    logger.error("Deepgram fallback to nova-2 failed: %s", fallback_exc)
+            else:
+                logger.error("Deepgram WebSocket handshake failed (%s): %s", ws_err.status_code, ws_err)
         except Exception as exc:
             logger.error("Deepgram streaming WebSocket exception: %s", exc)
 
@@ -178,29 +244,36 @@ class DeepgramService:
         language: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        One-shot synchronous/REST transcription fallback for recorded audio buffers.
+        One-shot REST transcription fallback for recorded audio buffers.
+        Supports nova-3 with automated fallback to nova-2, en-IN language,
+        punctuation, and domain emergency keyword boosting.
         """
         key = self.api_key
+        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
+
         if not key or key.startswith("your_"):
             return {
                 "transcript": "Emergency, I need assistance immediately.",
                 "confidence": 0.95,
-                "language": "en"
+                "language": target_lang
             }
 
         headers = {
             "Authorization": f"Token {key}",
             "Content-Type": mime_type
         }
-        lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", None)
-        params = {
-            "model": "nova-2",
-            "smart_format": "true"
-        }
-        if lang:
-            params["language"] = lang
-        else:
-            params["language"] = "en"
+        model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
+        params = [
+            ("model", model_tier),
+            ("smart_format", "true"),
+            ("punctuate", "true"),
+            ("language", target_lang),
+        ]
+        if target_lang in ("hi", "en-IN"):
+            params.append(("extra", "code_switch:true"))
+
+        for kw, weight in EMERGENCY_KEYWORDS.items():
+            params.append(("keywords", f"{kw}:{weight}"))
 
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -210,6 +283,20 @@ class DeepgramService:
                     params=params,
                     content=audio_bytes
                 )
+                # Fallback to nova-2 if nova-3 is unavailable on plan
+                if response.status_code in (400, 404) and model_tier != "nova-2":
+                    logger.warning(
+                        "Deepgram REST model '%s' failed (HTTP %d). Falling back to 'nova-2'.",
+                        model_tier, response.status_code
+                    )
+                    fallback_params = [p if p[0] != "model" else ("model", "nova-2") for p in params]
+                    response = await client.post(
+                        DEEPGRAM_REST_URL,
+                        headers=headers,
+                        params=fallback_params,
+                        content=audio_bytes
+                    )
+
                 if response.status_code == 200:
                     data = response.json()
                     channels = data.get("results", {}).get("channels", [])
@@ -218,7 +305,7 @@ class DeepgramService:
                         return {
                             "transcript": alt.get("transcript", ""),
                             "confidence": alt.get("confidence", 0.0),
-                            "language": alt.get("languages", ["en"])[0] if alt.get("languages") else "en"
+                            "language": alt.get("languages", [target_lang])[0] if alt.get("languages") else target_lang
                         }
                 logger.error("Deepgram REST returned status %s: %s", response.status_code, response.text)
                 return {"transcript": "", "confidence": 0.0, "language": "unknown"}

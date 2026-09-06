@@ -43,7 +43,8 @@ class Settings(BaseSettings):
 
     # Provider API keys (Optional placeholders for when providers are chosen)
     DEEPGRAM_API_KEY: Optional[str] = None
-    DEEPGRAM_LANGUAGE: str = "en"
+    DEEPGRAM_LANGUAGE: str = "en-IN"
+    DEEPGRAM_MODEL: str = "nova-3"
     OPENAI_API_KEY: Optional[str] = None
     ELEVENLABS_API_KEY: Optional[str] = None
     ELEVENLABS_VOICE_ID: Optional[str] = None

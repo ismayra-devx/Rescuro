@@ -27,13 +27,14 @@ from app.services.deepgram_service import deepgram_service
 
 async def transcribe_audio(
     audio_chunk: bytes | str,
-    encoding: str = "pcm_mulaw",
+    encoding: str = "linear16",
     sample_rate: int = 8000
 ) -> str:
     """Transcribe an incoming audio chunk or buffer using DeepgramService.
 
-    When configured with DEEPGRAM_API_KEY, delegates directly to Deepgram Nova-2
-    (supporting PCM16 8kHz linear16 and G.711 u-law).
+    When configured with DEEPGRAM_API_KEY, delegates directly to Deepgram Nova-3 / Nova-2
+    (supporting PCM16 linear16 and G.711 u-law).
+    Defaults to native linear16 (PCM16) to avoid lossy transcoding round-trips.
     Falls back to contextual emergency transcription if unconfigured.
     """
     if isinstance(audio_chunk, str):
