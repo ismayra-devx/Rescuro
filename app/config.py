@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # Provider API keys (Optional placeholders for when providers are chosen)
     DEEPGRAM_API_KEY: str = ""
-    DEEPGRAM_LANGUAGE: str = "en-IN"
+    DEEPGRAM_LANGUAGE: str = "multi"
     DEEPGRAM_MODEL: str = "nova-3"
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"

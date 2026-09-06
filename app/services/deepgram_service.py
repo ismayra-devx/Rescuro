@@ -1,8 +1,9 @@
-"""Deepgram Nova-2 STT Service for RESCURO.
+"""Deepgram Nova-3 Multilingual STT Service for RESCURO.
 
 Provides:
-1. Real-time streaming WebSocket transcription with endpointing and speech_final turn detection.
-2. Pre-recorded / buffer REST transcription fallback.
+1. Real-time streaming WebSocket transcription with native multilingual code-switching (model=nova-3, language=multi).
+2. Pre-recorded / buffer REST transcription with the same multilingual configuration.
+3. Turn detection with endpointing and speech_final markers.
 """
 
 import json
@@ -10,7 +11,7 @@ import logging
 import io
 import wave
 import inspect
-from typing import Any, AsyncGenerator, Callable, Dict, Optional, Awaitable
+from typing import Any, AsyncGenerator, Callable, Dict, Optional, Awaitable, List
 import websockets
 import httpx
 from pydantic import BaseModel
@@ -56,6 +57,7 @@ class TranscriptChunk(BaseModel):
     language: str
     speech_final: bool
     speaker: str = "caller"
+    languages: Optional[List[str]] = None
 
 
 EMERGENCY_KEYWORDS: Dict[str, int] = {
@@ -74,15 +76,18 @@ EMERGENCY_KEYWORDS: Dict[str, int] = {
     "bleeding": 2,
     "collision": 2,
     "help": 2,
+    "bachao": 2,
+    "madad": 2,
+    "khatra": 2,
+    "aag": 2,
 }
 
 
 class DeepgramService:
     """
-    Streaming transcription service powered by Deepgram Nova-3 (with Nova-2 fallback)
-    via WebSocket and REST.
-    Optimized for Indian English (en-IN), linear16 PCM, domain emergency keyword boosting,
-    endpointing (300ms), and utterance_end_ms (1000ms).
+    Streaming and REST transcription service powered by Deepgram Nova-3 Multilingual (model=nova-3, language=multi).
+    Optimized for real-time multilingual code-switching (English, Hindi, Hinglish), linear16 8kHz mono PCM,
+    domain emergency keyword boosting, endpointing (300ms), and utterance_end_ms (1000ms).
     """
 
     def __init__(self):
@@ -104,6 +109,7 @@ class DeepgramService:
         self,
         sample_rate: int = 8000,
         encoding: str = "linear16",
+        channels: int = 1,
         language: Optional[str] = None,
         model: Optional[str] = None,
         endpointing: int = 300,
@@ -111,27 +117,30 @@ class DeepgramService:
     ) -> str:
         """
         Builds query parameters for Deepgram streaming WebSocket.
-        Applies nova-3 tier (or fallback), endpointing=300ms, utterance_end_ms=1000ms,
-        en-IN language, punctuation, smart formatting, and emergency keyword boosting.
+        Applies nova-3 tier with native multilingual code-switching (language=multi),
+        endpointing=300ms, utterance_end_ms=1000ms, linear16 8kHz mono,
+        punctuation, smart formatting, and emergency keyword boosting.
         """
         chosen_model = model or getattr(settings, "DEEPGRAM_MODEL", "nova-3")
+        chosen_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "multi")
+
         params = [
             f"model={chosen_model}",
+            f"language={chosen_lang}",
             "smart_format=true",
             "punctuate=true",
             "interim_results=true",
             f"endpointing={endpointing}",
             f"utterance_end_ms={utterance_end_ms}",
             f"sample_rate={sample_rate}",
+            f"channels={channels}",
             f"encoding={encoding}",
         ]
-        lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
-        if lang:
-            params.append(f"language={lang}")
-            if lang in ("hi", "en-IN"):
-                params.append("extra=code_switch:true")
-        else:
-            params.append("language=en-IN")
+
+        # In Nova-3, multilingual code-switching is native with language=multi.
+        # Legacy extra=code_switch is ONLY for older models (nova-2) with specific language pairs.
+        if chosen_model == "nova-2" and chosen_lang in ("hi", "es"):
+            params.append("extra=code_switch:true")
 
         # Emergency dispatch keyword boosting
         for kw, weight in EMERGENCY_KEYWORDS.items():
@@ -145,26 +154,28 @@ class DeepgramService:
         on_chunk_callback: Optional[Callable[[TranscriptChunk], Awaitable[None]]] = None,
         sample_rate: int = 8000,
         encoding: str = "linear16",
-        language: Optional[str] = None
+        channels: int = 1,
+        language: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[TranscriptChunk, None]:
         """
-        Connects directly to Deepgram streaming WebSocket, pipes audio bytes,
-        and yields transcript chunks with per-turn speech_final markers.
-        Attempts nova-3 first, falling back to nova-2 if nova-3 is unavailable.
+        Connects directly to Deepgram streaming WebSocket using Nova-3 Multilingual (language=multi),
+        pipes audio bytes, and yields transcript chunks with per-turn speech_final markers.
         """
         key = self.api_key
-        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
+        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "multi")
+        model_tier = model or getattr(settings, "DEEPGRAM_MODEL", "nova-3")
 
         if not key or key.startswith("your_"):
             logger.debug("Deepgram API key not configured; STT streaming inactive.")
             return
 
-        model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
         query_str = self._get_query_params(
             sample_rate=sample_rate,
             encoding=encoding,
+            channels=channels,
             language=target_lang,
-            model=model_tier
+            model=model_tier,
         )
         ws_endpoint = f"{DEEPGRAM_WS_URL}?{query_str}"
         headers = {"Authorization": f"Token {key}"}
@@ -206,7 +217,12 @@ class DeepgramService:
                             confidence = float(best_alt.get("confidence", 0.85))
                             is_final = bool(data.get("is_final", False))
                             speech_final = bool(data.get("speech_final", False))
-                            detected_lang = best_alt.get("languages", [target_lang])[0] if best_alt.get("languages") else target_lang
+                            detected_lang = (
+                                best_alt.get("detected_language")
+                                or (best_alt.get("languages")[0] if best_alt.get("languages") else None)
+                                or target_lang
+                            )
+                            detected_languages = best_alt.get("languages") or [detected_lang]
 
                             chunk_obj = TranscriptChunk(
                                 text=text,
@@ -214,7 +230,8 @@ class DeepgramService:
                                 is_final=is_final,
                                 language=detected_lang,
                                 speech_final=speech_final,
-                                speaker="caller"
+                                speaker="caller",
+                                languages=detected_languages,
                             )
 
                             if on_chunk_callback:
@@ -228,25 +245,10 @@ class DeepgramService:
             async for chunk in _run_ws(ws_endpoint, model_tier):
                 yield chunk
         except websockets.exceptions.InvalidStatusCode as ws_err:
-            if ws_err.status_code in (400, 404) and model_tier != "nova-2":
-                logger.warning(
-                    "Deepgram model '%s' failed with status %d; retrying fallback to 'nova-2'.",
-                    model_tier, ws_err.status_code
-                )
-                fallback_query = self._get_query_params(
-                    sample_rate=sample_rate,
-                    encoding=encoding,
-                    language=target_lang,
-                    model="nova-2"
-                )
-                fallback_endpoint = f"{DEEPGRAM_WS_URL}?{fallback_query}"
-                try:
-                    async for chunk in _run_ws(fallback_endpoint, "nova-2"):
-                        yield chunk
-                except Exception as fallback_exc:
-                    logger.error("DEEPGRAM STREAM ERROR: Deepgram fallback to nova-2 failed: %s", fallback_exc)
-            else:
-                logger.error("DEEPGRAM STREAM ERROR: Deepgram WebSocket handshake failed (%s): %s", ws_err.status_code, ws_err)
+            logger.error(
+                "DEEPGRAM STREAM ERROR: Deepgram WebSocket handshake failed (HTTP %s): %s",
+                ws_err.status_code, ws_err
+            )
         except Exception as exc:
             logger.error("DEEPGRAM STREAM ERROR: %s", exc)
 
@@ -257,26 +259,29 @@ class DeepgramService:
         sample_rate: int = 8000,
         encoding: str = "linear16",
         channels: int = 1,
-        language: Optional[str] = None
+        language: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        One-shot REST transcription fallback for recorded audio buffers.
-        Wraps raw PCM16 audio in standard WAV format to guarantee reliable Deepgram parsing.
+        One-shot REST transcription for recorded audio buffers.
+        Uses Deepgram Nova-3 multilingual model (language=multi) for real-time code-switching.
         Never manufactures a fake transcript on failure.
         """
         key = self.api_key
-        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "en-IN")
+        target_lang = language or getattr(settings, "DEEPGRAM_LANGUAGE", "multi")
+        model_tier = model or getattr(settings, "DEEPGRAM_MODEL", "nova-3")
 
         if not key or key.startswith("your_"):
             logger.debug("Deepgram API key not configured. Returning empty transcript (no fake fallback).")
             return {
                 "transcript": "",
                 "confidence": 0.0,
-                "language": target_lang
+                "language": target_lang,
+                "languages": [target_lang],
             }
 
         if not audio_bytes:
-            return {"transcript": "", "confidence": 0.0, "language": target_lang}
+            return {"transcript": "", "confidence": 0.0, "language": target_lang, "languages": [target_lang]}
 
         # Convert raw PCM16 into standard WAV to ensure 100% reliable REST decoding by Deepgram
         is_mulaw = mime_type and "mulaw" in mime_type.lower()
@@ -293,14 +298,13 @@ class DeepgramService:
 
         headers = {
             "Authorization": f"Token {key}",
-            "Content-Type": effective_mime
+            "Content-Type": effective_mime,
         }
-        model_tier = getattr(settings, "DEEPGRAM_MODEL", "nova-3")
         params = [
             ("model", model_tier),
+            ("language", target_lang),
             ("smart_format", "true"),
             ("punctuate", "true"),
-            ("language", target_lang),
             ("sample_rate", str(sample_rate)),
             ("channels", str(channels)),
         ]
@@ -309,7 +313,8 @@ class DeepgramService:
         elif not payload_bytes.startswith(b"RIFF"):
             params.append(("encoding", "linear16"))
 
-        if target_lang in ("hi", "en-IN"):
+        # In Nova-3, language=multi natively handles multilingual code-switching.
+        if model_tier == "nova-2" and target_lang in ("hi", "es"):
             params.append(("extra", "code_switch:true"))
 
         for kw, weight in EMERGENCY_KEYWORDS.items():
@@ -321,21 +326,8 @@ class DeepgramService:
                     DEEPGRAM_REST_URL,
                     headers=headers,
                     params=params,
-                    content=payload_bytes
+                    content=payload_bytes,
                 )
-                # Fallback to nova-2 if nova-3 is unavailable on plan
-                if response.status_code in (400, 404) and model_tier != "nova-2":
-                    logger.warning(
-                        "Deepgram REST model '%s' failed (HTTP %d). Falling back to 'nova-2'.",
-                        model_tier, response.status_code
-                    )
-                    fallback_params = [p if p[0] != "model" else ("model", "nova-2") for p in params]
-                    response = await client.post(
-                        DEEPGRAM_REST_URL,
-                        headers=headers,
-                        params=fallback_params,
-                        content=payload_bytes
-                    )
 
                 if response.status_code == 200:
                     data = response.json()
@@ -343,16 +335,28 @@ class DeepgramService:
                     if results_channels and results_channels[0].get("alternatives"):
                         alt = results_channels[0]["alternatives"][0]
                         transcript_text = alt.get("transcript", "").strip()
+                        detected_lang = (
+                            alt.get("detected_language")
+                            or (alt.get("languages")[0] if alt.get("languages") else None)
+                            or target_lang
+                        )
+                        detected_languages = alt.get("languages") or [detected_lang]
                         return {
                             "transcript": transcript_text,
                             "confidence": alt.get("confidence", 0.0),
-                            "language": alt.get("languages", [target_lang])[0] if alt.get("languages") else target_lang
+                            "language": detected_lang,
+                            "languages": detected_languages,
                         }
-                logger.error("Deepgram REST returned status %s: %s", response.status_code, response.text)
-                return {"transcript": "", "confidence": 0.0, "language": "unknown"}
+
+                # Log the complete HTTP status and safe response details without exposing credentials
+                logger.error(
+                    "Deepgram REST returned HTTP %d: %s (model=%s, language=%s)",
+                    response.status_code, response.text, model_tier, target_lang
+                )
+                return {"transcript": "", "confidence": 0.0, "language": "unknown", "languages": []}
         except Exception as exc:
             logger.error("Deepgram REST error: %s", exc)
-            return {"transcript": "", "confidence": 0.0, "language": "error"}
+            return {"transcript": "", "confidence": 0.0, "language": "error", "languages": []}
 
 
 # Singleton service instance

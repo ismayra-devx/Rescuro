@@ -23,8 +23,8 @@ def test_deepgram_query_params_defaults():
     # 1. Model tier defaults to nova-3
     assert param_dict.get("model") == "nova-3"
 
-    # 2. Language defaults to en-IN (Indian English)
-    assert param_dict.get("language") == "en-IN"
+    # 2. Language defaults to multi (Nova-3 multilingual code-switching)
+    assert param_dict.get("language") == "multi"
 
     # 3. Smart formatting and punctuation enabled
     assert param_dict.get("smart_format") == "true"
@@ -185,4 +185,54 @@ async def test_execute_evaluation_runner(tmp_path):
         assert float(reader[0]["word_accuracy_pct"]) == 100.0
         assert reader[1]["sample_id"] == "s2"
         assert int(reader[1]["deletions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_deepgram_fallback_model_caching():
+    """Verify that deepgram_service requests nova-3 with language=multi and does not permanently cache nova-2 on 400."""
+    from unittest.mock import patch, MagicMock
+    from app.services.deepgram_service import DeepgramService
+
+    svc = DeepgramService()
+    svc.api_key = "test_deepgram_key_123"
+
+    mock_resp_400 = MagicMock()
+    mock_resp_400.status_code = 400
+    mock_resp_400.text = '{"err_code": "INVALID_PARAM", "err_msg": "Feature code_switch is not supported for model nova-3"}'
+
+    mock_resp_200 = MagicMock()
+    mock_resp_200.status_code = 200
+    mock_resp_200.json.return_value = {
+        "results": {
+            "channels": [
+                {"alternatives": [{"transcript": "Mera accident ho gaya hai", "confidence": 0.95, "languages": ["hi", "en"]}]}
+            ]
+        }
+    }
+
+    requests_recorded = []
+
+    async def mock_post(client, url, *args, **kwargs):
+        params = kwargs.get("params", [])
+        param_dict = dict(params)
+        requests_recorded.append(param_dict)
+        # Turn 1: nova-3 with invalid params returns 400
+        if len(requests_recorded) == 1:
+            return mock_resp_400
+        return mock_resp_200
+
+    with patch("httpx.AsyncClient.post", new=mock_post):
+        # Turn 1: HTTP 400 error returns empty transcript safely without crashing
+        res1 = await svc.transcribe_prerecorded(b"\x00" * 3200)
+        assert res1["transcript"] == ""
+        assert requests_recorded[0]["model"] == "nova-3"
+        assert requests_recorded[0]["language"] == "multi"
+        # Verify nova-2 is NOT permanently cached
+        assert not hasattr(svc, "_active_model") or svc._active_model is None
+
+        # Turn 2: nova-3 is attempted again (no permanent fallback on 400)
+        res2 = await svc.transcribe_prerecorded(b"\x00" * 3200)
+        assert res2["transcript"] == "Mera accident ho gaya hai"
+        assert requests_recorded[1]["model"] == "nova-3"
+        assert requests_recorded[1]["language"] == "multi"
 

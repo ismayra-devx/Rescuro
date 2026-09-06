@@ -456,3 +456,33 @@ def test_outgoing_tts_audio_cannot_trigger_duplicate_turn():
             assert stt_calls == 2
 
             ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
+
+
+def test_caller_emergency_supervisor_escalation():
+    """TEST 6: Caller says 'Emergency. I want to talk to supervisor.' -> routes to supervisor and responds."""
+    stream_sid = "exo_stream_t6"
+    call_sid = "exo_call_t6"
+    supervisor_speech = "Emergency. I want to talk to supervisor."
+
+    with patch("app.services.pipeline.transcribe_audio", new=AsyncMock(return_value=supervisor_speech)):
+        with client.websocket_connect("/exotel/media") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+            ws.send_text(json.dumps({
+                "event": "start",
+                "stream_sid": stream_sid,
+                "start": {"call_sid": call_sid, "stream_sid": stream_sid, "from": "+919999999996"}
+            }))
+
+            speech_b64 = base64.b64encode(struct.pack("<h", 2500) * 160).decode("ascii")
+            for _ in range(12):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": speech_b64}}))
+            silence_b64 = base64.b64encode(b"\x00\x00" * 160).decode("ascii")
+            for _ in range(36):
+                ws.send_text(json.dumps({"event": "media", "stream_sid": stream_sid, "media": {"payload": silence_b64}}))
+
+            resp_media = json.loads(ws.receive_text())
+            assert resp_media.get("event") == "media"
+            resp_mark = json.loads(ws.receive_text())
+            assert resp_mark.get("event") == "mark"
+
+            ws.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))

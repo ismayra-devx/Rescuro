@@ -1,6 +1,8 @@
 """OpenAI Service module with Structured Outputs and fallback mock adapter."""
 
 import logging
+import time
+import re
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from app.config import settings
@@ -12,6 +14,12 @@ EMERGENCY_KEYWORDS = [
     "emergency", "accident", "bachao", "khatra", "fire",
     "police", "ambulance", "attack", "hospital", "bleeding",
     "help", "mar gaya", "chot", "blood", "danger", "urgent"
+]
+
+SUPERVISOR_KEYWORDS = [
+    "supervisor", "talk to supervisor", "connect to supervisor", "transfer",
+    "human", "agent", "operator", "representative", "speak to someone",
+    "talk to person", "human agent", "call supervisor", "manager"
 ]
 
 
@@ -111,6 +119,20 @@ Result:
   "llm_confidence": 0.99,
   "route": "human_supervisor"
 }
+
+Example 6 (Supervisor Escalation):
+Caller: "Emergency. I want to talk to supervisor."
+Result:
+{
+  "reply": "Connecting you to an emergency supervisor immediately. Please stay on the line while we bridge the call.",
+  "incident_type": "supervisor_escalation",
+  "location": null,
+  "urgency": "HIGH",
+  "emergency": true,
+  "extracted_slots": {"escalation_requested": true, "escalate_to": "supervisor"},
+  "llm_confidence": 0.98,
+  "route": "human_supervisor"
+}
 """
 
 
@@ -120,11 +142,14 @@ class OpenAIService:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.OPENAI_API_KEY
         self._async_client = None
+        self._quota_exhausted: bool = False
+        self._quota_exhausted_time: float = 0.0
 
         if self.api_key:
             try:
                 from openai import AsyncOpenAI
-                self._async_client = AsyncOpenAI(api_key=self.api_key)
+                # Use max_retries=0 to eliminate blocking retry sleeps (up to 3s) on live emergency voice calls
+                self._async_client = AsyncOpenAI(api_key=self.api_key, max_retries=0)
             except ImportError:
                 logger.warning("openai SDK not installed; falling back to mock adapter.")
             except Exception as e:
@@ -149,6 +174,14 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
+        # Fast-path circuit breaker: if quota is exhausted, skip external network call to avoid caller dead air
+        if self._quota_exhausted:
+            now = time.time()
+            if now - self._quota_exhausted_time < 300:
+                return self._mock_extract(transcript, session_slots=session_slots)
+            else:
+                self._quota_exhausted = False
+
         # Use live AsyncOpenAI client if configured
         if self._async_client:
             try:
@@ -167,7 +200,16 @@ class OpenAIService:
                 if parsed:
                     return parsed
             except Exception as exc:
-                logger.error(f"OpenAI API request failed: {exc}. Falling back to adapter.")
+                err_str = str(exc).lower()
+                if "credit_balance_exhausted" in err_str or "insufficient_quota" in err_str:
+                    logger.warning(
+                        "OpenAI quota exhausted (%s). Tripping circuit breaker for 5m to protect live call latency.",
+                        exc
+                    )
+                    self._quota_exhausted = True
+                    self._quota_exhausted_time = time.time()
+                else:
+                    logger.error(f"OpenAI API request failed: {exc}. Falling back to adapter.")
 
         # Offline / Fallback Mock Adapter mirroring few-shot examples and multi-turn state
         return self._mock_extract(transcript, session_slots=session_slots)
@@ -179,11 +221,19 @@ class OpenAIService:
     ) -> LLMExtractionResult:
         """Deterministic adapter mirroring the 5 few-shot examples and multi-turn state for testing."""
         t_lower = transcript.lower().strip()
+        t_clean = re.sub(r"[^\w\s]", " ", t_lower)
+        t_clean = " ".join(t_clean.split())
         slots = session_slots or {}
 
-        # 0. Conversational Greetings (e.g. "Hello", "Hi", "Namaste", "Are you there")
+        # 0. Conversational Greetings (only if no explicit supervisor or emergency intent)
         greetings = ["hello", "hi", "hey", "namaste", "sun rahe ho", "are you there", "good morning", "good evening"]
-        is_greeting = any(t_lower == g or t_lower.startswith(f"{g} ") or t_lower.endswith(f" {g}") for g in greetings)
+        has_supervisor_request = any(sk in t_lower for sk in SUPERVISOR_KEYWORDS)
+        has_emergency_keyword = any(ek in t_lower for ek in EMERGENCY_KEYWORDS)
+        is_greeting = (
+            any(t_clean == g or t_clean.startswith(f"{g} ") or t_clean.endswith(f" {g}") for g in greetings)
+            and not has_supervisor_request
+            and not has_emergency_keyword
+        )
 
         if is_greeting:
             if slots.get("incident_type") or slots.get("category"):
@@ -213,6 +263,147 @@ class OpenAIService:
                     llm_confidence=0.95,
                     route="automated",
                 )
+
+        # 0.1 Supervisor / Human Escalation Intent (English, Hindi, and Hinglish)
+        if has_supervisor_request:
+            loc = slots.get("location")
+            is_hinglish = any(w in t_lower for w in ["baat", "karni", "karvao", "jaldi", "chahiye", "hai", "mujhe", "bolo", "se"])
+            if is_hinglish:
+                reply = "Aapko turant emergency supervisor se connect kiya ja raha hai, kripya line par bane rahein."
+            elif loc:
+                reply = f"Connecting you to an emergency supervisor immediately for {loc}. Please stay on the line while we bridge the call."
+            else:
+                reply = "Connecting you to an emergency supervisor immediately. Please stay on the line while we bridge the call."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="supervisor_escalation",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={
+                    "escalation_requested": True,
+                    "escalate_to": "supervisor",
+                    "dominant_language": "Hinglish" if is_hinglish else "English"
+                },
+                llm_confidence=0.98,
+                route="human_supervisor",
+            )
+
+        # 0.11 Code-switched Emergency 1: Accident with severe bleeding & ambulance request
+        # e.g., "Mera accident ho gaya hai, please ambulance bhejo, I am bleeding badly."
+        if ("accident" in t_lower or "durghatna" in t_lower) and ("bleeding" in t_lower or "khoon" in t_lower or "chot" in t_lower or "blood" in t_lower):
+            loc = slots.get("location")
+            is_hinglish = any(w in t_lower for w in ["mera", "gaya hai", "bhejo", "chahiye", "kripya", "turant", "badly", "bahut", "hai"])
+            if is_hinglish:
+                reply = "Ambulance ko turant dispatch kiya ja raha hai. Kripya bleeding par saaf kapde se pressure banayein aur apna exact location batayein."
+            else:
+                reply = "An ambulance is being dispatched immediately. Please apply firm pressure to the bleeding with a clean cloth and confirm your location."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="traffic_accident",
+                location=loc,
+                urgency="CRITICAL",
+                emergency=True,
+                extracted_slots={
+                    "requested_agency": "ambulance",
+                    "medical_indicators": ["severe_bleeding"],
+                    "hazard": "vehicle_collision",
+                    "dominant_language": "Hinglish" if is_hinglish else "English"
+                },
+                llm_confidence=0.98,
+                route="human_supervisor",
+            )
+
+        # 0.12 Code-switched Emergency 2: Active assault / attack & police request
+        # e.g., "Police ko call karo, someone is attacking me."
+        if ("police" in t_lower or "police ko" in t_lower) and ("attack" in t_lower or "hamla" in t_lower or "mar raha" in t_lower or "chori" in t_lower or "threat" in t_lower):
+            loc = slots.get("location")
+            is_hinglish = any(w in t_lower for w in ["karo", "call karo", "mujhe", "koi", "hai", "pe"])
+            if is_hinglish:
+                reply = "Police units ko turant dispatch kiya ja raha hai. Kripya kisi safe jagah par chhup jayein aur apna location batayein."
+            else:
+                reply = "Police units are being dispatched immediately. Please seek safe cover and stay on the line."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="police",
+                location=loc,
+                urgency="CRITICAL",
+                emergency=True,
+                extracted_slots={
+                    "requested_agency": "police",
+                    "security_indicators": ["active_assault"],
+                    "dominant_language": "Hinglish" if is_hinglish else "English"
+                },
+                llm_confidence=0.98,
+                route="human_supervisor",
+            )
+
+        # 0.13 Code-switched Emergency 3: Severe medical / chest pain & ambulance request
+        # e.g., "Mujhe chest mein bahut pain ho raha hai, I think I need an ambulance."
+        if ("chest" in t_lower or "heart" in t_lower or "seene" in t_lower) and ("pain" in t_lower or "dard" in t_lower or "ambulance" in t_lower or "attack" in t_lower):
+            loc = slots.get("location")
+            is_hinglish = any(w in t_lower for w in ["mujhe", "mein", "bahut", "ho raha", "hai", "chahiye", "need"])
+            if is_hinglish:
+                reply = "Emergency cardiac ambulance ko alert bhej diya gaya hai. Kripya seedhe aaram se baith jayein aur apna exact address batayein."
+            else:
+                reply = "An advanced life support ambulance has been alerted. Please sit upright calmly and confirm your exact location."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="medical",
+                location=loc,
+                urgency="CRITICAL",
+                emergency=True,
+                extracted_slots={
+                    "requested_agency": "ambulance",
+                    "medical_indicators": ["chest_pain", "suspected_cardiac"],
+                    "dominant_language": "Hinglish" if is_hinglish else "English"
+                },
+                llm_confidence=0.99,
+                route="human_supervisor",
+            )
+
+        # 0.14 Code-switched Emergency 4: House / structure fire
+        # e.g., "Help chahiye, ghar mein fire lag gayi hai." or "Bachao! Building mein aag lag gayi hai, jaldi aao!"
+        if ("fire" in t_lower or "aag" in t_lower) and ("ghar" in t_lower or "building" in t_lower or "makaan" in t_lower or "room" in t_lower or "lag gayi" in t_lower):
+            loc = slots.get("location") or ("building" if "building" in t_lower else None)
+            is_building = "building" in t_lower
+            if is_building:
+                reply = "Fire services ko alert bhej diya gaya hai. Kripya building se turant bahar niklein aur safe doori banayein!"
+            else:
+                reply = "Fire brigade ko turant soochit kiya ja raha hai. Kripya sabhi ke sath ghar se bahar niklein aur safe doori banayein."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="fire",
+                location=loc,
+                urgency="CRITICAL",
+                emergency=True,
+                extracted_slots={
+                    "requested_agency": "fire",
+                    "hazard": "fire" if is_building else "structure_fire",
+                    "dominant_language": "Hinglish"
+                },
+                llm_confidence=0.99,
+                route="human_supervisor",
+            )
+
+        # 0.2 Dispatch Assistance Request (e.g. "Send whatever unit you can")
+        if any(w in t_lower for w in ["send whatever unit", "send whatever", "send unit", "dispatch unit", "send someone", "send help", "dispatch someone", "whatever unit"]):
+            loc = slots.get("location")
+            prior_inc = slots.get("incident_type") or slots.get("category") or "emergency"
+            if loc:
+                reply = f"RESCURO Emergency Dispatch is mobilizing all available units to {loc}. Please stay on the line."
+            else:
+                reply = "RESCURO Emergency Dispatch is mobilizing all available units. What is your exact location?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type=prior_inc,
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"dispatch_requested": True, "units_requested": "all_available"},
+                llm_confidence=0.96,
+                route="human_supervisor",
+            )
 
         # 1. Few-shot Example 1: Routine
         if "address" in t_lower or "office" in t_lower:
@@ -302,7 +493,7 @@ class OpenAIService:
                 route="human_supervisor",
             )
 
-        # 7. Few-shot Example 5: Emergency
+        # 7. Few-shot Example 5: Emergency (Fire)
         if "bachao" in t_lower or "aag" in t_lower or "fire" in t_lower or "danger" in t_lower:
             return LLMExtractionResult(
                 reply="Fire services ko alert bhej diya gaya hai. Kripya building se turant bahar niklein aur safe doori banayein!",
@@ -312,6 +503,75 @@ class OpenAIService:
                 emergency=True,
                 extracted_slots={"hazard": "fire"},
                 llm_confidence=0.99,
+                route="human_supervisor",
+            )
+
+        # 8. Medical / Ambulance Emergency
+        if any(w in t_lower for w in ["ambulance", "medical", "hospital", "doctor", "bleeding", "blood", "unconscious", "heart attack", "chot", "mar gaya"]):
+            loc = slots.get("location")
+            if loc:
+                reply = f"Emergency medical response is being coordinated for {loc}. An ambulance has been alerted. Please stay on the line."
+            else:
+                reply = "Emergency medical response is being coordinated. An ambulance has been alerted. What is your exact location?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="medical",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"medical_emergency": True},
+                llm_confidence=0.97,
+                route="human_supervisor",
+            )
+
+        # 9. Police / Security Incident
+        if any(w in t_lower for w in ["police", "attack", "robbery", "thief", "intruder", "fight", "weapon", "gun"]):
+            loc = slots.get("location")
+            if loc:
+                reply = f"Police units have been alerted to {loc}. Please stay in a safe position."
+            else:
+                reply = "Police units have been alerted to your call. Please stay in a safe position. What is your location?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="police",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"police_dispatched": True},
+                llm_confidence=0.97,
+                route="human_supervisor",
+            )
+
+        # 10. General Emergency Keywords
+        if any(w in t_lower for w in ["emergency", "urgent", "help", "madad", "khatra", "critical"]):
+            loc = slots.get("location")
+            if loc:
+                reply = f"RESCURO Emergency Dispatch received your report. Units have been alerted with HIGH priority for {loc}. Please stay on the line."
+            else:
+                reply = "RESCURO Emergency Dispatch received your report. Units have been alerted with HIGH priority. What is your exact location?"
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type="emergency",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"emergency_flag": True},
+                llm_confidence=0.97,
+                route="human_supervisor",
+            )
+
+        # 11. Prior Active Emergency Continuation
+        if slots.get("emergency") or slots.get("urgency") in ("HIGH", "CRITICAL"):
+            loc = slots.get("location")
+            reply = "RESCURO Emergency Dispatch acknowledged your update. Units remain alerted with HIGH priority. Please stay on the line."
+            return LLMExtractionResult(
+                reply=reply,
+                incident_type=slots.get("incident_type") or "emergency",
+                location=loc,
+                urgency="HIGH",
+                emergency=True,
+                extracted_slots={"prior_incident": True},
+                llm_confidence=0.95,
                 route="human_supervisor",
             )
 
@@ -354,16 +614,22 @@ class OpenAIService:
         elif combined_conf < threshold:
             escalation_reason = f"Combined confidence {combined_conf:.2f} fell below threshold {threshold:.2f}"
 
+        caller_name = "Rahul" if "rahul" in transcript_so_far.lower() else None
+        location = "Sector 62, Noida" if "sector 62" in transcript_so_far.lower() else None
+        issue = "Water supply disruption" if ("पानी" in transcript_so_far or "water" in transcript_so_far.lower()) else (keyword_match or "Emergency Assistance")
+        greeting_name = f" {caller_name} जी" if caller_name else ""
+        conv_reply = f"नमस्ते{greeting_name}, हमने विवरण दर्ज कर लिया है।"
+
         return SlotExtractionResult(
-            caller_name="Rahul",
-            location="Sector 62, Noida",
-            issue="Water supply disruption",
+            caller_name=caller_name,
+            location=location,
+            issue=issue,
             language_detected="Hinglish",
-            missing_slots=[],
+            missing_slots=[s for s in ["caller_name", "location", "issue"] if not locals().get(s)],
             llm_confidence=llm_conf,
             combined_confidence=combined_conf,
             next_question=None,
-            conversational_reply="नमस्ते राहुल जी, हमने सेक्टर 62 नोएडा में पानी की समस्या का विवरण दर्ज कर लिया है।",
+            conversational_reply=conv_reply,
             safety_flag=safety_flag,
             safety_trigger=keyword_match,
             should_escalate=should_escalate,

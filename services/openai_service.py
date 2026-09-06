@@ -77,7 +77,7 @@ class OpenAIService:
         self.api_key = settings.OPENAI_API_KEY.strip()
         self.client: Optional[AsyncOpenAI] = None
         if self.api_key and not self.api_key.startswith("your_"):
-            self.client = AsyncOpenAI(api_key=self.api_key)
+            self.client = AsyncOpenAI(api_key=self.api_key, max_retries=0)
         else:
             logger.warning("OpenAI API key not configured; mock structured responses will be used.")
 
@@ -132,16 +132,22 @@ class OpenAIService:
             elif combined_conf < threshold:
                 escalation_reason = f"Combined confidence {combined_conf:.2f} fell below threshold {threshold:.2f}"
 
+            caller_name = "Rahul" if "rahul" in transcript_so_far.lower() else None
+            location = "Sector 62, Noida" if "sector 62" in transcript_so_far.lower() else None
+            issue = "Water supply disruption" if ("पानी" in transcript_so_far or "water" in transcript_so_far.lower()) else (keyword_match or "Emergency Assistance")
+            greeting_name = f" {caller_name} जी" if caller_name else ""
+            conv_reply = f"नमस्ते{greeting_name}, हमने विवरण दर्ज कर लिया है।"
+
             return SlotExtractionResult(
-                caller_name="Rahul",
-                location="Sector 62, Noida",
-                issue="Water supply disruption",
+                caller_name=caller_name,
+                location=location,
+                issue=issue,
                 language_detected="Hinglish",
-                missing_slots=[],
+                missing_slots=[s for s in ["caller_name", "location", "issue"] if not locals().get(s)],
                 llm_confidence=llm_conf,
                 combined_confidence=combined_conf,
                 next_question=None,
-                conversational_reply="नमस्ते राहुल जी, हमने सेक्टर 62 नोएडा में पानी की समस्या का विवरण दर्ज कर लिया है।",
+                conversational_reply=conv_reply,
                 safety_flag=safety_flag,
                 safety_trigger=keyword_match,
                 should_escalate=should_escalate,

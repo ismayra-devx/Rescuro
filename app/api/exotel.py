@@ -109,6 +109,8 @@ async def exotel_media_websocket(websocket: WebSocket):
 
             # Step 1: Obtain Transcript
             transcript = (transcript_text or "").strip()
+            detected_lang = "multi"
+            detected_langs = ["multi"]
             if not transcript:
                 if len(audio_buffer) == 0:
                     return
@@ -120,6 +122,11 @@ async def exotel_media_websocket(websocket: WebSocket):
                         encoding="linear16",
                         sample_rate=SAMPLE_RATE
                     )
+                    transcript = (transcript or "").strip()
+                    last_stt = getattr(pipeline, "_last_stt_result", {})
+                    if isinstance(last_stt, dict):
+                        detected_lang = last_stt.get("language") or "multi"
+                        detected_langs = last_stt.get("languages") or [detected_lang]
                 except Exception as stt_err:
                     logger.error("STT ERROR: Exception during transcription: %s", stt_err)
                     transcript = ""
@@ -137,7 +144,7 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "metadata": metadata
                 }
             else:
-                logger.info("STT SUCCESS")
+                logger.info("STT SUCCESS (language=%s, languages=%s)", detected_lang, detected_langs)
                 logger.info("TRANSCRIPT: %s", transcript)
 
                 # Persist genuine transcript to database
@@ -148,7 +155,9 @@ async def exotel_media_websocket(websocket: WebSocket):
                 orch_result = await pipeline.run_orchestrator(
                     transcript=transcript,
                     session_id=active_session,
-                    metadata=metadata
+                    metadata=metadata,
+                    language=detected_lang,
+                    languages=detected_langs
                 )
                 response_text = orch_result.get("response_text", "")
                 logger.info("AI RESPONSE: %s", response_text)
@@ -160,6 +169,8 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "session_id": active_session,
                     "call_id": active_session,
                     "transcript": transcript,
+                    "language": detected_lang,
+                    "languages": detected_langs,
                     "orchestrator": orch_result
                 })
                 await dashboard_manager.broadcast("TRANSCRIPT_UPDATE", {
@@ -168,8 +179,30 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "call_id": active_session,
                     "transcript": transcript,
                     "text": transcript,
+                    "language": detected_lang,
+                    "languages": detected_langs,
                     "isAi": False
                 })
+
+                # If emergency detected or supervisor escalation requested, broadcast alert
+                if orch_result.get("route") == "human_supervisor" or orch_result.get("emergency") or orch_result.get("urgency") in ("HIGH", "CRITICAL"):
+                    await dashboard_manager.broadcast("EMERGENCY_DETECTED", {
+                        "stream_id": stream_sid,
+                        "session_id": active_session,
+                        "call_id": active_session,
+                        "priority": "CRITICAL" if orch_result.get("urgency") == "CRITICAL" else "HIGH",
+                        "reason": f"Escalation triggered: category={orch_result.get('category')}",
+                        "incident_type": orch_result.get("category"),
+                        "urgency": orch_result.get("urgency", "HIGH"),
+                        "transcript": transcript,
+                        "location": orch_result.get("location")
+                    })
+                    await dashboard_manager.broadcast("EMERGENCY_ALERT", {
+                        "session_id": active_session,
+                        "priority": "CRITICAL" if orch_result.get("urgency") == "CRITICAL" else "HIGH",
+                        "transcript": transcript,
+                        "category": orch_result.get("category"),
+                    })
             await dashboard_manager.broadcast("TTS_READY", {
                 "stream_id": stream_sid,
                 "session_id": active_session,

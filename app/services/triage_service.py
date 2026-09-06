@@ -18,6 +18,12 @@ HIGH_RISK_KEYWORDS = [
     "danger",
     "attack",
     "crash",
+    "supervisor",
+    "operator",
+    "ambulance",
+    "police",
+    "unconscious",
+    "dying",
 ]
 
 

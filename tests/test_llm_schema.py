@@ -119,3 +119,43 @@ async def test_empty_transcript_handling():
     assert isinstance(result, LLMExtractionResult)
     assert result.emergency is False
     assert result.route == "human_supervisor"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_escalation_intent():
+    """Verify 'Emergency. I want to talk to supervisor.' routes to human supervisor with HIGH urgency."""
+    service = OpenAIService()
+    result = await service.extract_intent("Emergency. I want to talk to supervisor.")
+    assert isinstance(result, LLMExtractionResult)
+    assert result.emergency is True
+    assert result.urgency == "HIGH"
+    assert result.route == "human_supervisor"
+    assert result.incident_type == "supervisor_escalation"
+    assert "supervisor" in result.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_medical_emergency_intent():
+    """Verify medical/ambulance emergencies route to human supervisor with HIGH urgency."""
+    service = OpenAIService()
+    result = await service.extract_intent("Please send an ambulance immediately, someone is bleeding.")
+    assert isinstance(result, LLMExtractionResult)
+    assert result.emergency is True
+    assert result.urgency == "HIGH"
+    assert result.route == "human_supervisor"
+    assert result.incident_type == "medical"
+
+
+@pytest.mark.asyncio
+async def test_openai_quota_circuit_breaker():
+    """Verify quota circuit breaker trips and bypasses external network call instantly."""
+    service = OpenAIService()
+    service._quota_exhausted = True
+    import time
+    service._quota_exhausted_time = time.time()
+
+    # Must immediately return structured result from mock adapter without network delay
+    result = await service.extract_intent("Emergency. I want to talk to supervisor.")
+    assert result.incident_type == "supervisor_escalation"
+    assert result.route == "human_supervisor"
+    assert result.emergency is True
