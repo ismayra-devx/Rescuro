@@ -10,8 +10,12 @@ class SessionStatus(str, Enum):
     """Lifecycle states for a call session."""
 
     INITIATED = "INITIATED"
+    AWAITING_CONSENT = "AWAITING_CONSENT"
+    CONSENT_DENIED = "CONSENT_DENIED"
     ACTIVE = "ACTIVE"
+    SUPERVISOR_REQUESTED = "SUPERVISOR_REQUESTED"
     SUPERVISOR_CONNECTED = "SUPERVISOR_CONNECTED"
+    HUMAN_TAKEOVER = "HUMAN_TAKEOVER"
     COMPLETED = "COMPLETED"
 
 
@@ -31,3 +35,5 @@ class CallSession(BaseModel):
     tts_halted: bool = False
     supervisor_takeover_reason: Optional[str] = None
     media_bridge: Optional[Dict[str, Any]] = None
+    consent_granted: Optional[bool] = None
+    supervisor_requested: bool = False

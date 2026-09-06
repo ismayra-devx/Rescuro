@@ -19,12 +19,17 @@ logger = logging.getLogger("rescuro.pipeline")
 
 
 from app.services.deepgram_service import deepgram_service
-from app.services.openai_service import openai_service
+from app.services.openai_service import openai_service, evaluate_consent_response
 
 # Per-session multi-turn conversation history and extracted slots
 _session_conversations: Dict[str, list] = {}
 _session_slots: Dict[str, Dict[str, Any]] = {}
 _overridden_sessions: set = set()
+
+
+def evaluate_consent(transcript: str) -> Optional[bool]:
+    """Evaluate whether caller gave recording/emergency consent."""
+    return evaluate_consent_response(transcript)
 
 
 def mark_session_overridden(session_id: str, overridden: bool = True):
@@ -217,6 +222,14 @@ async def run_orchestrator(
     meta["language"] = slots.get("latest_language") or detected_lang or "multi"
     meta["languages"] = slots.get("languages") or detected_langs
 
+    is_supervisor_req = (
+        category == "SUPERVISOR_ESCALATION"
+        or bool(extraction.extracted_slots.get("supervisor_requested"))
+        or extraction.extracted_slots.get("escalate_to") == "supervisor"
+    )
+    if is_supervisor_req:
+        slots["supervisor_requested"] = True
+
     result = {
         "session_id": session_key,
         "transcript": cleaned_text,
@@ -226,6 +239,7 @@ async def run_orchestrator(
         "location": slots.get("location"),
         "route": extraction.route,
         "emergency": extraction.emergency,
+        "supervisor_requested": is_supervisor_req,
         "status": "DISPATCH_EN_ROUTE" if extraction.emergency else "ACTIVE",
         "units_assigned": [f"{category}-ALPHA-1", "RESCURO-DRONE-02"],
         "timestamp": datetime.now(timezone.utc).isoformat(),

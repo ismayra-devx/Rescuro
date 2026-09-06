@@ -73,9 +73,9 @@ class WebSocketService {
 
             this.socket.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'PONG') return;
-                    this.emit(data.event || data.type || 'message', data.payload || data);
+                    if (data.event) this.emit(data.event, data.payload || data);
+                    if (data.type && data.type !== data.event) this.emit(data.type, data.payload || data);
+                    if (!data.event && !data.type) this.emit('message', data);
                 } catch (err) {
                     console.warn('[WS] Failed to parse message:', event.data);
                 }

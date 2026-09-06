@@ -17,10 +17,52 @@ EMERGENCY_KEYWORDS = [
 ]
 
 SUPERVISOR_KEYWORDS = [
-    "supervisor", "talk to supervisor", "connect to supervisor", "transfer",
-    "human", "agent", "operator", "representative", "speak to someone",
-    "talk to person", "human agent", "call supervisor", "manager"
+    "supervisor", "talk to supervisor", "speak to supervisor", "connect to supervisor",
+    "transfer", "human", "agent", "operator", "representative", "speak to someone",
+    "talk to person", "human agent", "call supervisor", "manager", "lead dispatcher",
+    "senior dispatcher", "supervisor se baat", "supervisor ko bulao", "supervisor se connect",
+    "supervisor chahiye", "supervisor se", "mujhe supervisor", "officer se baat", "karni hai"
 ]
+
+
+def evaluate_consent_response(text: str) -> Optional[bool]:
+    """Evaluate whether caller gave consent to call recording and emergency processing.
+    
+    Returns:
+        True: Consent explicitly granted (affirmative)
+        False: Consent explicitly denied (negative)
+        None: Ambiguous / needs re-prompting
+    """
+    if not text:
+        return None
+    t = text.lower().strip()
+    
+    # Negative checks first with word boundaries to prevent false consent
+    negative_patterns = [
+        r"\bno\b", r"\bnope\b", r"\bnah\b", r"\bdon'?t agree\b", r"\bdo not agree\b",
+        r"\bdisagree\b", r"\bdon'?t record\b", r"\bdo not record\b", r"\bnot record\b",
+        r"\bstop\b", r"\bcancel\b", r"\bnever\b", r"\bnahin\b", r"\bnahi\b",
+        r"\bmat karo\b", r"\brecord mat\b", r"\bi refuse\b", r"\brefuse\b",
+        r"\breject\b", r"\bnot consent\b", r"\bdon'?t consent\b", r"\bi don'?t agree\b"
+    ]
+    for pattern in negative_patterns:
+        if re.search(pattern, t):
+            return False
+            
+    # Affirmative checks with word boundaries (avoids partial word false matches like 'ha' in 'hai')
+    affirmative_patterns = [
+        r"\byes\b", r"\byeah\b", r"\byep\b", r"\bsure\b", r"\bokay\b", r"\bok\b",
+        r"\bi agree\b", r"\bagree\b", r"\bproceed\b", r"\bcontinue\b", r"\baccept\b",
+        r"\bhaan\b", r"\bhanji\b", r"\bhaanji\b", r"\bji haan\b", r"\btheek hai\b",
+        r"\bthik hai\b", r"\bchalega\b", r"\bkar lijiye\b", r"\bkariye\b", r"\bbilkul\b",
+        r"\byes please\b", r"\bsure thing\b", r"\bgo ahead\b", r"\bsahi hai\b",
+        r"\ballowed\b", r"\bi consent\b", r"\bconsent\b"
+    ]
+    for pattern in affirmative_patterns:
+        if re.search(pattern, t):
+            return True
+            
+    return None
 
 
 class SlotExtractionResult(BaseModel):

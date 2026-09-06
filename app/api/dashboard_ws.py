@@ -5,11 +5,14 @@ authenticated Command Center dashboard in real-time.
 """
 
 import json
+import base64
 import logging
 from typing import Set, Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from app.api.auth import authenticate_ws_token
+from app.models.session import SessionStatus
 from app.services import pipeline
+from app.services.audio_bridge import audio_bridge
 
 logger = logging.getLogger("rescuro.dashboard_ws")
 router = APIRouter(tags=["Dashboard WebSocket"])
@@ -28,6 +31,8 @@ class DashboardConnectionManager:
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
+        for s_id in list(audio_bridge._supervisors.keys()):
+            audio_bridge.unregister_supervisor(s_id, websocket)
         logger.info("Dashboard client disconnected. Remaining clients: %d", len(self.active_connections))
 
     async def broadcast(self, event_type: str, payload: Dict[str, Any]):
@@ -146,6 +151,10 @@ async def dashboard_websocket(
                     if session:
                         updated = await orchestrator.supervisor_override(session.session_id, reason=notes)
                         pipeline.mark_session_overridden(session.session_id, True)
+                        session.status = SessionStatus.HUMAN_TAKEOVER
+                        # Connect supervisor WebSocket to real-time audio bridge
+                        audio_bridge.register_supervisor(session.session_id, websocket)
+
                         logger.info(
                             "SUPERVISOR TOOK OVER call session_id=%s by %s [%s]",
                             session.session_id, user.email, user.role
@@ -157,7 +166,9 @@ async def dashboard_websocket(
                                 "session_id": session.session_id,
                                 "status": updated.status.value,
                                 "tts_halted": updated.tts_halted,
-                                "supervisor": user.email
+                                "supervisor": user.email,
+                                "audio_bridge_connected": audio_bridge.has_exotel_stream(session.session_id),
+                                "telephony_active": audio_bridge.has_exotel_stream(session.session_id),
                             }
                         })
                     else:
@@ -178,12 +189,12 @@ async def dashboard_websocket(
                 call_id = payload_data.get("callId") or payload_data.get("session_id") or msg.get("callId") or msg.get("session_id")
                 if call_id:
                     pipeline.mark_session_overridden(call_id, False)
+                    audio_bridge.unregister_supervisor(call_id, websocket)
                     orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
                     if orchestrator:
                         session = orchestrator.get_session(call_id)
                         if session:
                             session.tts_halted = False
-                            from app.models.session import SessionStatus
                             session.status = SessionStatus.ACTIVE
                             logger.info(
                                 "SUPERVISOR RELEASED call session_id=%s back to AI by %s [%s]",
@@ -194,6 +205,19 @@ async def dashboard_websocket(
                                 "event": "ai_resumed",
                                 "payload": {"session_id": session.session_id, "status": session.status.value}
                             })
+
+            # Handle live supervisor microphone audio chunks into Exotel phone call
+            elif msg_type in ["SUPERVISOR_AUDIO_CHUNK", "SUPERVISOR_AUDIO", "AUDIO_STREAM"]:
+                payload_data = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+                call_id = payload_data.get("callId") or payload_data.get("session_id") or msg.get("callId") or msg.get("session_id")
+                audio_b64 = payload_data.get("audio") or msg.get("audio")
+                if call_id and audio_b64:
+                    try:
+                        pcm_bytes = base64.b64decode(audio_b64)
+                        await audio_bridge.route_supervisor_audio(call_id, pcm_bytes)
+                    except Exception as a_err:
+                        logger.warning("Error routing supervisor audio to Exotel: %s", a_err)
+                continue
 
             # Handle live audio or test simulation from dashboard
             elif msg_type in ["SIMULATE_CALL", "AUDIO_CHUNK", "TEST_DISPATCH"]:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     X, 
     ShieldCheck, 
@@ -18,6 +18,68 @@ import {
     Radio
 } from 'lucide-react';
 import { useLiveStream } from '../context/LiveStreamContext';
+import wsService from '../services/websocket';
+
+// Downsample Float32Array at native sampleRate to 8000Hz Int16Array
+function downsampleTo8k(buffer, sampleRate) {
+    if (sampleRate === 8000) {
+        const pcm16 = new Int16Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+            const s = Math.max(-1, Math.min(1, buffer[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return pcm16;
+    }
+    const sampleRateRatio = sampleRate / 8000;
+    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const pcm16 = new Int16Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < newLength) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+            accum += buffer[i];
+            count++;
+        }
+        const avg = count > 0 ? accum / count : 0;
+        const s = Math.max(-1, Math.min(1, avg));
+        pcm16[offsetResult] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+    }
+    return pcm16;
+}
+
+// Convert Int16Array to base64
+function pcm16ToBase64(pcm16) {
+    const bytes = new Uint8Array(pcm16.buffer);
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+// Convert incoming base64 8kHz 16-bit mono PCM to Float32Array and compute RMS
+function base64ToFloat32Array(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    const int16 = new Int16Array(bytes.buffer);
+    const float32 = new Float32Array(int16.length);
+    let sumSquares = 0;
+    for (let i = 0; i < int16.length; i++) {
+        const f = int16[i] / (int16[i] < 0 ? 32768 : 32767);
+        float32[i] = f;
+        sumSquares += f * f;
+    }
+    const rms = Math.sqrt(sumSquares / (int16.length || 1));
+    return { float32, rms };
+}
 
 export const TakeoverModal = ({ onToast }) => {
     const { 
@@ -39,8 +101,36 @@ export const TakeoverModal = ({ onToast }) => {
     const [isDocked, setIsDocked] = useState(false);
 
     // Dynamic Reactive Speech Waveform Arrays
-    const [supervisorWave, setSupervisorWave] = useState([20, 50, 35, 80, 60, 95, 45, 70, 30, 85, 40, 60]);
-    const [callerWave, setCallerWave] = useState([40, 70, 30, 85, 55, 90, 45, 65, 35, 75, 50, 80]);
+    const [supervisorWave, setSupervisorWave] = useState([12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]);
+    const [callerWave, setCallerWave] = useState([12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]);
+
+    const isSupervisorMicMutedRef = useRef(isSupervisorMicMuted);
+    const isSpeakerMutedRef = useRef(isSpeakerMuted);
+    const isSupervisorOnHoldRef = useRef(isSupervisorOnHold);
+    const supervisorVolumeRef = useRef(supervisorVolume);
+
+    useEffect(() => {
+        isSupervisorMicMutedRef.current = isSupervisorMicMuted;
+    }, [isSupervisorMicMuted]);
+
+    useEffect(() => {
+        isSpeakerMutedRef.current = isSpeakerMuted;
+    }, [isSpeakerMuted]);
+
+    useEffect(() => {
+        isSupervisorOnHoldRef.current = isSupervisorOnHold;
+    }, [isSupervisorOnHold]);
+
+    useEffect(() => {
+        supervisorVolumeRef.current = supervisorVolume;
+    }, [supervisorVolume]);
+
+    const audioCtxRef = useRef(null);
+    const micStreamRef = useRef(null);
+    const scriptProcessorRef = useRef(null);
+    const sourceNodeRef = useRef(null);
+    const nextPlayTimeRef = useRef(0);
+    const callerDecayTimerRef = useRef(null);
 
     const call = activeCalls?.find(c => c.id === takeoverModalCallId);
 
@@ -55,35 +145,189 @@ export const TakeoverModal = ({ onToast }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [takeoverModalCallId, closeTakeoverModal]);
 
-    // Dynamic Speech Audio Waveform Reactivity (Simulates Natural Human Speech Cadence)
+    // Real Full-Duplex Web Audio Bridge
     useEffect(() => {
         if (!takeoverModalCallId) return;
 
-        const interval = setInterval(() => {
-            // 1. Supervisor Speech Channel (Tx)
-            if (isSupervisorMicMuted || isSupervisorOnHold) {
-                setSupervisorWave(new Array(12).fill(12));
-            } else {
-                setSupervisorWave(prev => prev.map(() => {
-                    // Natural speech oscillation burst
-                    const activeBurst = Math.random() > 0.15;
-                    return activeBurst ? Math.floor(Math.random() * 75) + 25 : 15;
-                }));
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+            console.warn('Web Audio API is not supported in this browser.');
+            return;
+        }
+
+        const ctx = new AudioContextClass();
+        audioCtxRef.current = ctx;
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+        }
+
+        // Notify backend that supervisor console is actively bridging into call
+        wsService.sendAction('SUPERVISOR_TAKEOVER', { callId: takeoverModalCallId });
+
+        let isMounted = true;
+
+        async function startMicCapture() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1
+                    }
+                });
+                if (!isMounted) {
+                    stream.getTracks().forEach(t => t.stop());
+                    return;
+                }
+                micStreamRef.current = stream;
+
+                const source = ctx.createMediaStreamSource(stream);
+                sourceNodeRef.current = source;
+
+                // 2048 sample frames (~45ms)
+                const scriptNode = ctx.createScriptProcessor(2048, 1, 1);
+                scriptProcessorRef.current = scriptNode;
+
+                scriptNode.onaudioprocess = (e) => {
+                    if (!isMounted) return;
+                    const inputData = e.inputBuffer.getChannelData(0);
+
+                    // Compute RMS for live vocal amplitude
+                    let sum = 0;
+                    for (let i = 0; i < inputData.length; i++) {
+                        sum += inputData[i] * inputData[i];
+                    }
+                    const rms = Math.sqrt(sum / inputData.length);
+
+                    if (isSupervisorMicMutedRef.current || isSupervisorOnHoldRef.current) {
+                        setSupervisorWave(new Array(12).fill(12));
+                        return;
+                    }
+
+                    // Dynamic Reactive Waveform based on real vocal energy
+                    const level = Math.min(1, rms * 6);
+                    setSupervisorWave(() => {
+                        return Array.from({ length: 12 }, (_, i) => {
+                            const envelope = Math.sin((i / 11) * Math.PI) * 0.4 + 0.6;
+                            const jitter = (Math.sin(Date.now() / 50 + i) * 0.08);
+                            return Math.max(12, Math.min(100, Math.round((level + jitter) * 88 * envelope + 12)));
+                        });
+                    });
+
+                    // Downsample to 8000 Hz Linear PCM 16-bit
+                    const pcm16 = downsampleTo8k(inputData, ctx.sampleRate);
+                    if (pcm16.length > 0) {
+                        const b64 = pcm16ToBase64(pcm16);
+                        wsService.sendAction('SUPERVISOR_AUDIO_CHUNK', {
+                            call_id: takeoverModalCallId,
+                            audio: b64
+                        });
+                    }
+                };
+
+                // Connect to silent gain node to destination to keep audio processing active without loopback feedback
+                const silentGain = ctx.createGain();
+                silentGain.gain.value = 0;
+                source.connect(scriptNode);
+                scriptNode.connect(silentGain);
+                silentGain.connect(ctx.destination);
+            } catch (err) {
+                console.warn('Microphone capture access denied or unavailable:', err);
+                if (onToast) onToast('Microphone access denied or unavailable', 'warn');
+            }
+        }
+
+        startMicCapture();
+
+        // Listen for incoming CALLER_AUDIO_CHUNK from Exotel telephony bridge
+        const handleCallerAudio = (msg) => {
+            if (!isMounted) return;
+            const payload = msg.payload || msg;
+            const callId = msg.session_id || payload.call_id || payload.session_id;
+            if (callId && callId !== takeoverModalCallId) return;
+
+            const b64Audio = payload.audio || msg.audio;
+            if (!b64Audio) return;
+
+            try {
+                const { float32, rms } = base64ToFloat32Array(b64Audio);
+
+                if (isSpeakerMutedRef.current || isSupervisorOnHoldRef.current) {
+                    setCallerWave(new Array(12).fill(12));
+                } else {
+                    const level = Math.min(1, rms * 5);
+                    setCallerWave(() => {
+                        return Array.from({ length: 12 }, (_, i) => {
+                            const envelope = Math.sin((i / 11) * Math.PI) * 0.4 + 0.6;
+                            const jitter = (Math.sin(Date.now() / 60 + i) * 0.08);
+                            return Math.max(12, Math.min(100, Math.round((level + jitter) * 88 * envelope + 12)));
+                        });
+                    });
+
+                    if (callerDecayTimerRef.current) clearTimeout(callerDecayTimerRef.current);
+                    callerDecayTimerRef.current = setTimeout(() => {
+                        if (isMounted) setCallerWave(new Array(12).fill(12));
+                    }, 250);
+
+                    // Playback caller audio in supervisor headset
+                    if (ctx && ctx.state !== 'closed') {
+                        if (ctx.state === 'suspended') ctx.resume();
+
+                        const audioBuf = ctx.createBuffer(1, float32.length, 8000);
+                        audioBuf.getChannelData(0).set(float32);
+
+                        const bufSource = ctx.createBufferSource();
+                        bufSource.buffer = audioBuf;
+
+                        const gainNode = ctx.createGain();
+                        gainNode.gain.value = supervisorVolumeRef.current / 100;
+
+                        bufSource.connect(gainNode);
+                        gainNode.connect(ctx.destination);
+
+                        const currentTime = ctx.currentTime;
+                        const startTime = Math.max(currentTime, nextPlayTimeRef.current);
+                        bufSource.start(startTime);
+                        nextPlayTimeRef.current = startTime + audioBuf.duration;
+                    }
+                }
+            } catch (e) {
+                console.warn('Error processing caller audio chunk:', e);
+            }
+        };
+
+        const unsubCallerAudio = wsService.on('CALLER_AUDIO_CHUNK', handleCallerAudio);
+
+        return () => {
+            isMounted = false;
+            unsubCallerAudio();
+
+            if (callerDecayTimerRef.current) {
+                clearTimeout(callerDecayTimerRef.current);
             }
 
-            // 2. Caller Speech Channel (Rx)
-            if (isSpeakerMuted || isSupervisorOnHold) {
-                setCallerWave(new Array(12).fill(12));
-            } else {
-                setCallerWave(prev => prev.map(() => {
-                    const activeBurst = Math.random() > 0.2;
-                    return activeBurst ? Math.floor(Math.random() * 70) + 25 : 18;
-                }));
+            if (scriptProcessorRef.current) {
+                scriptProcessorRef.current.disconnect();
+                scriptProcessorRef.current = null;
             }
-        }, 90);
 
-        return () => clearInterval(interval);
-    }, [takeoverModalCallId, isSupervisorMicMuted, isSpeakerMuted, isSupervisorOnHold]);
+            if (sourceNodeRef.current) {
+                sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = null;
+            }
+
+            if (micStreamRef.current) {
+                micStreamRef.current.getTracks().forEach(t => t.stop());
+                micStreamRef.current = null;
+            }
+
+            if (audioCtxRef.current) {
+                audioCtxRef.current.close().catch(() => {});
+                audioCtxRef.current = null;
+            }
+        };
+    }, [takeoverModalCallId]);
 
     if (!takeoverModalCallId || !call) return null;
 

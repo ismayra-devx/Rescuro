@@ -323,6 +323,41 @@ export const LiveStreamProvider = ({ children }) => {
             }
         };
 
+        const handleSupervisorTakeoverRequest = (msg) => {
+            const payload = msg.payload || msg;
+            const sessionId = msg.session_id || payload.session_id || payload.call_id;
+            if (sessionId) {
+                setActiveCalls(prev => prev.map(c => {
+                    if (c.id === sessionId) {
+                        return {
+                            ...c,
+                            urgency: 'CRITICAL',
+                            risk: 'HIGH',
+                            riskColor: 'rose',
+                            status: 'Supervisor Requested by Caller',
+                            snippet: payload.reason || 'Caller verbally requested human supervisor takeover.'
+                        };
+                    }
+                    return c;
+                }));
+                setAlerts(prev => [
+                    {
+                        id: `ALT-SUP-${Date.now().toString().slice(-3)}`,
+                        title: 'CRITICAL: Caller Demands Human Supervisor',
+                        location: sessionId,
+                        priority: 'P1 CRITICAL',
+                        priorityColor: 'rose',
+                        timeElapsed: '00m 01s',
+                        nearestUnit: 'Supervisor Console (Immediate Voice Bridge)',
+                        supervisorAssigned: 'SUP-004 (Ismayra Parveen)',
+                        details: payload.reason || 'Caller on active line requested immediate human supervisor takeover.'
+                    },
+                    ...prev
+                ]);
+                setTakeoverModalCallId(sessionId);
+            }
+        };
+
         const unsubTranscription = wsService.on('transcription_delta', handleTranscript);
         const unsubTr2 = wsService.on('TRANSCRIPT_RECEIVED', handleTranscript);
         const unsubTr3 = wsService.on('TRANSCRIPT_UPDATE', handleTranscript);
@@ -334,6 +369,8 @@ export const LiveStreamProvider = ({ children }) => {
         const unsubEmergAlert = wsService.on('EMERGENCY_ALERT', handleTriageUpdate);
         const unsubEmergDet = wsService.on('EMERGENCY_DETECTED', handleTriageUpdate);
         const unsubSupConn = wsService.on('SUPERVISOR_CONNECTED', handleSupervisorConnected);
+        const unsubSupReq = wsService.on('SUPERVISOR_REQUESTED', handleSupervisorTakeoverRequest);
+        const unsubSupReq2 = wsService.on('SUPERVISOR_CALL_TAKEOVER_REQUEST', handleSupervisorTakeoverRequest);
         const unsubCallEnded = wsService.on('CALL_ENDED', handleCallEnded);
 
         return () => {
@@ -350,6 +387,8 @@ export const LiveStreamProvider = ({ children }) => {
             unsubEmergAlert();
             unsubEmergDet();
             unsubSupConn();
+            unsubSupReq();
+            unsubSupReq2();
             unsubCallEnded();
             wsService.disconnect();
         };

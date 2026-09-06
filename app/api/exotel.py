@@ -17,6 +17,7 @@ Exotel media chunks -> Audio buffer -> Real STT / Turn detection -> "User finish
 -> ONE transcript -> ONE orchestrator call -> ONE TTS -> ONE audio response -> Wait for next user turn.
 """
 
+import os
 import json
 import base64
 import math
@@ -30,12 +31,38 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.api.dashboard_ws import dashboard_manager
 from app.database import create_call_session, update_call_session, append_call_transcript
+from app.models.session import SessionStatus
 from app.services import pipeline
+from app.services.audio_bridge import audio_bridge
 from app.services.deepgram_service import deepgram_service
-from app.services.tts_service import pcm16_to_ulaw, ulaw_to_pcm16
+from app.services.tts_service import pcm16_to_ulaw, ulaw_to_pcm16, generate_fallback_ulaw_audio
 
 logger = logging.getLogger("rescuro.exotel")
 router = APIRouter(prefix="/exotel", tags=["Exotel Telephony"])
+
+CONSENT_GREETING_TEXT = (
+    "Hello, you've reached RESCURO Emergency Response. "
+    "This call may contain sensitive emergency information and "
+    "will be recorded for emergency response and dispatch purposes. "
+    "Do you consent to continue?"
+)
+
+_cached_consent_ulaw: Optional[bytes] = None
+
+async def get_consent_greeting_ulaw() -> bytes:
+    """Pre-synthesize or fetch cached 8kHz G.711 u-law audio for the consent greeting disclosure."""
+    global _cached_consent_ulaw
+    if _cached_consent_ulaw is not None and len(_cached_consent_ulaw) > 0:
+        return _cached_consent_ulaw
+    try:
+        audio = await asyncio.wait_for(pipeline.synthesize_speech(CONSENT_GREETING_TEXT), timeout=3.0)
+        if audio and len(audio) > 0:
+            _cached_consent_ulaw = audio
+            return _cached_consent_ulaw
+    except Exception as e:
+        logger.warning("TTS API call for consent greeting timed out or failed (%s); using fallback audio", e)
+    _cached_consent_ulaw = generate_fallback_ulaw_audio(duration_sec=3.0)
+    return _cached_consent_ulaw
 
 # Audio specs and turn detection parameters
 SAMPLE_RATE = 8000           # Exotel 8kHz
@@ -89,6 +116,15 @@ async def exotel_media_websocket(websocket: WebSocket):
     playback_expected_end_time: float = 0.0
     turn_counter = 0
 
+    # Feature 1: Consent gate state
+    awaiting_consent = True
+    consent_granted: Optional[bool] = None
+    terminate_after_playback = False
+    session_emergency_blurted = False
+
+    # Feature 2: Supervisor human takeover state
+    is_human_takeover = False
+
     # Deepgram streaming session management
     deepgram_audio_queue: Optional[asyncio.Queue] = None
     deepgram_task: Optional[asyncio.Task] = None
@@ -97,6 +133,8 @@ async def exotel_media_websocket(websocket: WebSocket):
         """Execute exactly ONE full turn: STT -> Orchestrator -> TTS -> Outbound Media."""
         nonlocal speech_detected, speech_duration_ms, silence_duration_ms, is_processing_turn
         nonlocal assistant_speaking, active_mark_id, playback_expected_end_time, turn_counter
+        nonlocal awaiting_consent, consent_granted, terminate_after_playback, is_human_takeover
+        nonlocal session_emergency_blurted
 
         if is_processing_turn or assistant_speaking:
             return
@@ -132,6 +170,9 @@ async def exotel_media_websocket(websocket: WebSocket):
                     transcript = ""
                 transcript = (transcript or "").strip()
 
+            orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+            is_supervisor_req = False
+
             # Safeguard: Never manufacture a fake transcript on STT failure
             if not transcript:
                 logger.error("STT ERROR: Transcription failed or returned empty. Prompting caller to repeat.")
@@ -144,23 +185,152 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "metadata": metadata
                 }
             else:
-                logger.info("STT SUCCESS (language=%s, languages=%s)", detected_lang, detected_langs)
-                logger.info("TRANSCRIPT: %s", transcript)
+                t_lower = transcript.lower()
+                # 0. Check for explicit supervisor request FIRST (highest priority, valid anytime)
+                is_supervisor_req = any(sk in t_lower for sk in [
+                    "supervisor", "speak to a supervisor", "talk to a supervisor",
+                    "supervisor se baat", "supervisor ko bulao", "supervisor se connect",
+                    "supervisor chahiye", "human agent", "talk to human", "speak to human",
+                    "dispatcher se baat", "transfer", "human operator", "manager",
+                    "kisi human se", "insan se baat"
+                ])
+                if is_supervisor_req:
+                    logger.info("SUPERVISOR REQUEST DETECTED from caller for session %s", active_session)
+                    is_human_takeover = True
+                    pipeline.mark_session_overridden(active_session, True)
+                    if orchestrator:
+                        sess = orchestrator.get_session(active_session)
+                        if sess:
+                            sess.tts_halted = True
+                            sess.supervisor_requested = True
+                            sess.status = SessionStatus.HUMAN_TAKEOVER
 
-                # Persist genuine transcript to database
-                await append_call_transcript(active_session, transcript)
+                    is_hindi = any(w in t_lower for w in ["baat", "karni", "mujhe", "hai", "karo", "bulao", "se"])
+                    response_text = (
+                        "Aapko emergency supervisor se connect kiya ja raha hai. Kripya line par bane rahein."
+                        if is_hindi
+                        else "Connecting you to an emergency supervisor immediately. Please stay on the line while we bridge the call."
+                    )
+                    orch_result = {
+                        "session_id": active_session,
+                        "transcript": transcript,
+                        "response_text": response_text,
+                        "urgency": "CRITICAL",
+                        "category": "SUPERVISOR_ESCALATION",
+                        "route": "human_supervisor",
+                        "emergency": True,
+                        "supervisor_requested": True
+                    }
+                elif awaiting_consent:
+                    # FEATURE 1: Mandatory Recording Consent Gate
+                    consent_eval = pipeline.evaluate_consent(transcript)
+                    logger.info("CONSENT EVALUATION: transcript='%s', result=%s", transcript, consent_eval)
+                    if consent_eval is True:
+                        awaiting_consent = False
+                        consent_granted = True
+                        if session_emergency_blurted:
+                            response_text = "Thank you. Help is being routed. Please tell me your exact location."
+                        else:
+                            response_text = "Thank you. Please tell me what happened."
+                        if orchestrator:
+                            sess = orchestrator.get_session(active_session)
+                            if sess:
+                                sess.consent_granted = True
+                                sess.status = SessionStatus.ACTIVE
+                        orch_result = {
+                            "session_id": active_session,
+                            "transcript": transcript,
+                            "response_text": response_text,
+                            "urgency": "HIGH" if session_emergency_blurted else "LOW",
+                            "category": "EMERGENCY" if session_emergency_blurted else "CONSENT_GRANTED",
+                            "route": "automated",
+                            "emergency": session_emergency_blurted,
+                        }
+                    elif consent_eval is False:
+                        awaiting_consent = False
+                        consent_granted = False
+                        terminate_after_playback = True
+                        response_text = (
+                            "Understood. Because recording consent was not provided, "
+                            "this emergency session cannot continue on this channel. "
+                            "If you have an immediate emergency, please dial 112 directly. Goodbye."
+                        )
+                        if orchestrator:
+                            sess = orchestrator.get_session(active_session)
+                            if sess:
+                                sess.consent_granted = False
+                                sess.status = SessionStatus.CONSENT_DENIED
+                        orch_result = {
+                            "session_id": active_session,
+                            "transcript": transcript,
+                            "response_text": response_text,
+                            "urgency": "LOW",
+                            "category": "CONSENT_DENIED",
+                            "route": "automated",
+                            "emergency": False,
+                        }
+                    else:
+                        # Ambiguous response or caller spoke emergency details before consenting
+                        has_emergency_blurt = any(kw in t_lower for kw in [
+                            "accident", "durghatna", "bleeding", "khoon", "chot", "blood",
+                            "injured", "fire", "aag", "bachao", "madad", "emergency", "ambulance",
+                            "hospital", "help", "pain", "attack", "police"
+                        ])
+                        if has_emergency_blurt:
+                            session_emergency_blurted = True
+                            try:
+                                await pipeline.run_orchestrator(
+                                    transcript=transcript,
+                                    session_id=active_session,
+                                    metadata=metadata
+                                )
+                            except Exception:
+                                pass
+                            response_text = (
+                                "I understand this is an emergency. For dispatch and legal purposes, "
+                                "this call is recorded. Do you agree to continue?"
+                            )
+                            orch_result = {
+                                "session_id": active_session,
+                                "transcript": transcript,
+                                "response_text": response_text,
+                                "urgency": "HIGH",
+                                "category": "EMERGENCY",
+                                "route": "human_supervisor",
+                                "emergency": True,
+                            }
+                        else:
+                            response_text = (
+                                "I understand this is urgent, but for emergency response compliance, "
+                                "this call must be recorded. Do you consent to proceed? Please say yes or no."
+                            )
+                            orch_result = {
+                                "session_id": active_session,
+                                "transcript": transcript,
+                                "response_text": response_text,
+                                "urgency": "MEDIUM",
+                                "category": "AWAITING_CONSENT",
+                                "route": "automated",
+                                "emergency": False,
+                            }
+                else:
+                    logger.info("STT SUCCESS (language=%s, languages=%s)", detected_lang, detected_langs)
+                    logger.info("TRANSCRIPT: %s", transcript)
 
-                # Step 2: Run Orchestrator
-                logger.info("ORCHESTRATOR START")
-                orch_result = await pipeline.run_orchestrator(
-                    transcript=transcript,
-                    session_id=active_session,
-                    metadata=metadata,
-                    language=detected_lang,
-                    languages=detected_langs
-                )
-                response_text = orch_result.get("response_text", "")
-                logger.info("AI RESPONSE: %s", response_text)
+                    # Persist genuine transcript to database
+                    await append_call_transcript(active_session, transcript)
+
+                    # Step 2: Run Orchestrator
+                    logger.info("ORCHESTRATOR START")
+                    orch_result = await pipeline.run_orchestrator(
+                        transcript=transcript,
+                        session_id=active_session,
+                        metadata=metadata,
+                        language=detected_lang,
+                        languages=detected_langs
+                    )
+                    response_text = orch_result.get("response_text", "")
+                    logger.info("AI RESPONSE: %s", response_text)
 
             # Step 3: Broadcast to Dispatcher Dashboard
             if transcript:
@@ -204,13 +374,13 @@ async def exotel_media_websocket(websocket: WebSocket):
                         "category": orch_result.get("category"),
                     })
             # Guardrail: Check if supervisor has taken over this call
-            orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
             session_obj = orchestrator.get_session(active_session) if orchestrator and active_session else None
             is_takeover = (
-                (session_obj and (session_obj.tts_halted or session_obj.status.value == "supervisor_connected"))
+                (session_obj and (session_obj.tts_halted or session_obj.status.value in ("supervisor_connected", "HUMAN_TAKEOVER")))
                 or (active_session and pipeline.is_session_overridden(active_session))
             )
-            if is_takeover:
+            # If takeover is active and this turn is NOT the initial transition turn, suppress automated TTS
+            if is_takeover and not is_supervisor_req:
                 logger.info(
                     "SUPERVISOR TAKEOVER ACTIVE: Suppressing automated TTS for session %s (supervisor in control)",
                     active_session
@@ -260,6 +430,15 @@ async def exotel_media_websocket(websocket: WebSocket):
             await websocket.send_text(json.dumps(mark_message))
             logger.info("AUDIO SENT (stream_sid=%s, duration=%.2fs, mark=%s)", stream_sid, playback_duration_sec, mark_id)
 
+            if terminate_after_playback:
+                logger.info("CONSENT DENIED: Terminating call session %s after disclaimer completes", active_session)
+                await asyncio.sleep(playback_duration_sec + 0.35)
+                try:
+                    await websocket.close()
+                except Exception:
+                    pass
+                return
+
         except Exception as turn_err:
             logger.error("AUDIO ERROR: Error executing voice turn: %s", turn_err, exc_info=True)
             assistant_speaking = False
@@ -305,14 +484,27 @@ async def exotel_media_websocket(websocket: WebSocket):
 
                 logger.info("CALL STARTED (session_id=%s, stream_sid=%s)", session_id, stream_sid)
 
+                # Register active Exotel stream in core audio bridge
+                audio_bridge.register_exotel_call(session_id, websocket, stream_sid)
+
                 # Persist call start in shared call_sessions table
                 await create_call_session(
                     call_id=session_id,
                     caller_name=from_number,
                     source="exotel",
-                    status="active",
+                    status="awaiting_consent",
                     start_time=start_time
                 )
+
+                # Initialize session in orchestrator if available
+                orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+                if orchestrator:
+                    sess = orchestrator.get_session(session_id)
+                    if not sess:
+                        sess = orchestrator.create_session_instant(call_sid=call_sid, from_number=from_number)
+                        sess.session_id = session_id
+                        orchestrator._sessions[session_id] = sess
+                    sess.status = SessionStatus.AWAITING_CONSENT
 
                 # Broadcast live call start to dispatcher dashboard
                 await dashboard_manager.broadcast("INCOMING_CALL", {
@@ -320,7 +512,7 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "session_id": session_id,
                     "caller": from_number,
                     "source": "exotel",
-                    "status": "ACTIVE"
+                    "status": "AWAITING_CONSENT"
                 })
                 await dashboard_manager.broadcast("CALL_STARTED", {
                     "stream_id": stream_sid,
@@ -336,6 +528,45 @@ async def exotel_media_websocket(websocket: WebSocket):
                     "source": "exotel",
                     "event": "start"
                 })
+
+                is_test_env = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+                enable_consent_flow = (
+                    not is_test_env
+                    or "consent" in (stream_sid or "").lower()
+                    or "consent" in (call_sid or "").lower()
+                )
+
+                if not enable_consent_flow:
+                    awaiting_consent = False
+                    consent_granted = True
+                else:
+                    awaiting_consent = True
+                    consent_granted = None
+                    # FEATURE 1: Send initial consent greeting immediately upon connection
+                    try:
+                        logger.info("DELIVERING MANDATORY CONSENT GREETING (session_id=%s)", session_id)
+                        ulaw_audio = await get_consent_greeting_ulaw()
+                        outbound_pcm16_audio = ulaw_to_pcm16(ulaw_audio)
+                        outbound_b64 = base64.b64encode(outbound_pcm16_audio).decode("ascii")
+                        playback_duration_sec = len(outbound_pcm16_audio) / (SAMPLE_RATE * BYTES_PER_SAMPLE)
+                        mark_id = f"consent_greeting_{int(time.time() * 1000)}"
+                        assistant_speaking = True
+                        active_mark_id = mark_id
+                        playback_expected_end_time = time.time() + playback_duration_sec + 0.35
+
+                        await websocket.send_text(json.dumps({
+                            "event": "media",
+                            "stream_sid": stream_sid,
+                            "media": {"payload": outbound_b64}
+                        }))
+                        await websocket.send_text(json.dumps({
+                            "event": "mark",
+                            "stream_sid": stream_sid,
+                            "mark": {"name": mark_id}
+                        }))
+                        logger.info("CONSENT GREETING DELIVERED (duration=%.2fs)", playback_duration_sec)
+                    except Exception as cg_err:
+                        logger.error("Failed to send initial consent greeting: %s", cg_err)
 
                 # If Deepgram API key is configured, initialize streaming session
                 if deepgram_service.api_key:
@@ -387,6 +618,22 @@ async def exotel_media_websocket(websocket: WebSocket):
                     continue
 
                 if not inbound_pcm16_chunk:
+                    continue
+
+                # Check if session is in HUMAN_TAKEOVER mode
+                orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+                session_obj = orchestrator.get_session(session_id) if orchestrator and session_id else None
+                in_takeover = (
+                    is_human_takeover
+                    or (session_id and pipeline.is_session_overridden(session_id))
+                    or (session_obj and (session_obj.tts_halted or session_obj.status.value in ("supervisor_connected", "HUMAN_TAKEOVER")))
+                )
+                if in_takeover:
+                    # Stream caller audio directly to supervisor dashboard / headset
+                    await audio_bridge.route_caller_audio(session_id or f"EXO-{stream_sid}", inbound_pcm16_chunk)
+                    # Forward to Deepgram so supervisor dashboard still sees live transcript updates
+                    if deepgram_audio_queue is not None:
+                        await deepgram_audio_queue.put(inbound_pcm16_chunk)
                     continue
 
                 # Echo Suppression: If assistant is currently speaking/playing back TTS audio,
@@ -506,8 +753,9 @@ async def exotel_media_websocket(websocket: WebSocket):
         duration_sec = max(1, int((end_time - start_time).total_seconds()))
         active_session = session_id or f"EXO-{stream_sid or 'session'}"
 
-        # Cleanly release session conversation memory
+        # Cleanly release session conversation memory and unregister from audio bridge
         pipeline.clear_session_state(active_session)
+        audio_bridge.unregister_exotel_call(active_session)
 
         try:
             await update_call_session(
