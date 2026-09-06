@@ -126,16 +126,28 @@ def create_app() -> FastAPI:
             }
         )
 
+    # Mount frontend static assets if built
+    dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.exists(assets_dir):
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
     # Dashboard HTML Serving
     @application.get("/", response_class=HTMLResponse, tags=["Dashboard"])
     @application.get("/dashboard", response_class=HTMLResponse, tags=["Dashboard"])
     async def serve_dashboard():
-        """Serve minimal React WebSocket dashboard."""
+        """Serve the unified frontend dashboard."""
+        dist_html = os.path.join(dist_dir, "index.html")
+        if os.path.exists(dist_html):
+            with open(dist_html, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+
         html_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
         if os.path.exists(html_path):
             with open(html_path, "r", encoding="utf-8") as f:
                 return HTMLResponse(content=f.read())
-        return HTMLResponse(content="<h1>RESCURO Emergency Command Center</h1>")
+        return HTMLResponse(content="<h1>RESCURO Emergency Command Center</h1><p>Frontend assets not found.</p>")
 
     # Dashboard WebSocket Feeds (raw / events)
     async def _handle_dashboard_ws(websocket: WebSocket):
