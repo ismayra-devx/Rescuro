@@ -63,8 +63,13 @@ def test_complete_live_lifecycle_flow():
     assert data_emerg["triage_result"]["priority"] in ["HIGH", "CRITICAL"]
 
     # 6. Supervisor takeover
+    from app.core.security import create_access_token
+    token = create_access_token({"sub": "sup_live", "email": "sup@rescuro.org", "role": "supervisor"})
+    headers = {"Authorization": f"Bearer {token}"}
+
     res_override = client.post(
         "/supervisor/override",
+        headers=headers,
         json={
             "session_id": session_id,
             "reason": "Supervisor taking over call",

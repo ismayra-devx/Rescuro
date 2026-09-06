@@ -24,12 +24,31 @@ from app.services.openai_service import openai_service
 # Per-session multi-turn conversation history and extracted slots
 _session_conversations: Dict[str, list] = {}
 _session_slots: Dict[str, Dict[str, Any]] = {}
+_overridden_sessions: set = set()
+
+
+def mark_session_overridden(session_id: str, overridden: bool = True):
+    """Mark or unmark a session as overridden by a human supervisor."""
+    if not session_id:
+        return
+    if overridden:
+        _overridden_sessions.add(session_id)
+        logger.info("Pipeline session %s marked as overridden by supervisor. Automated TTS halted.", session_id)
+    else:
+        _overridden_sessions.discard(session_id)
+        logger.info("Pipeline session %s released back to AI autonomous operation.", session_id)
+
+
+def is_session_overridden(session_id: str) -> bool:
+    """Check if a session is currently taken over by a supervisor."""
+    return bool(session_id and session_id in _overridden_sessions)
 
 
 def clear_session_state(session_id: str):
-    """Cleanly clear in-memory conversation history and slots for a terminated session."""
+    """Cleanly clear in-memory conversation history, slots, and override flag for a terminated session."""
     _session_conversations.pop(session_id, None)
     _session_slots.pop(session_id, None)
+    _overridden_sessions.discard(session_id)
 
 
 # ==============================================================================
@@ -271,7 +290,19 @@ async def process_voice_turn(
     # 2. Orchestrate response
     orch_result = await run_orchestrator(transcript, session_id=session_id, metadata=metadata)
 
-    # 3. Synthesize speech
+    # 3. Guard against AI speaking over supervisor
+    if session_id and is_session_overridden(session_id):
+        logger.info("Session %s under supervisor takeover: Automated TTS suppressed in process_voice_turn.", session_id)
+        return {
+            "transcript": transcript,
+            "orchestrator": orch_result,
+            "audio_bytes": b"",
+            "audio_base64": "",
+            "tts_halted": True,
+            "status": "SUPERVISOR_ACTIVE"
+        }
+
+    # 4. Synthesize speech
     audio_bytes = await synthesize_speech(orch_result["response_text"])
     audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
 

@@ -87,8 +87,11 @@ def test_websocket_realtime_stream_without_polling():
         assert emerg_msg["payload"]["priority"] in ["HIGH", "CRITICAL"]
 
         # 4. Trigger supervisor takeover -> emits SUPERVISOR_CONNECTED
+        from app.core.security import create_access_token
+        sup_token = create_access_token({"sub": "sup_dash", "email": "sup@rescuro.org", "role": "supervisor"})
         res_override = client.post(
             "/supervisor/override",
+            headers={"Authorization": f"Bearer {sup_token}"},
             json={"session_id": session_id, "reason": "Supervisor stepping in"},
         )
         assert res_override.status_code == 200

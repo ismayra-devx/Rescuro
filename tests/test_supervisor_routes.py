@@ -32,8 +32,13 @@ def test_supervisor_override_and_session_api():
     assert process_res.json()["triage_result"]["route"] == "automated"
 
     # 3. Supervisor takeover
+    from app.core.security import create_access_token
+    token = create_access_token({"sub": "sup1", "email": "sup@rescuro.org", "role": "supervisor"})
+    headers = {"Authorization": f"Bearer {token}"}
+
     override_res = client.post(
         "/supervisor/override",
+        headers=headers,
         json={
             "session_id": session_id,
             "reason": "Supervisor stepping in to handle directly",

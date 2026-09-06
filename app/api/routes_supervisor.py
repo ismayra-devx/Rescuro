@@ -1,8 +1,13 @@
 """Supervisor override and session inspection routes."""
 
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
+
+from app.api.auth import get_current_supervisor, UserOut
+from app.models.session import SessionStatus
+from app.models.events import EventType
+from app.services import pipeline
 
 router = APIRouter(tags=["Supervisor & Sessions"])
 
@@ -14,6 +19,13 @@ class SupervisorOverrideRequest(BaseModel):
     reason: Optional[str] = Field(default="Supervisor initiated manual takeover")
 
 
+class SupervisorReleaseRequest(BaseModel):
+    """Payload for returning an overridden call back to autonomous AI."""
+
+    session_id: str = Field(..., description="Session identifier to return to AI")
+    notes: Optional[str] = Field(default="Supervisor returned call to autonomous AI")
+
+
 class ProcessTranscriptRequest(BaseModel):
     """Payload for invoking or testing the transcription/triage pipeline."""
 
@@ -23,9 +35,15 @@ class ProcessTranscriptRequest(BaseModel):
 
 
 @router.post("/supervisor/override")
-async def supervisor_override(request: Request, body: SupervisorOverrideRequest) -> Dict[str, Any]:
-    """Take over an active call: validates session_id, changes state to supervisor_connected,
-    halts automated TTS, broadcasts SUPERVISOR_CONNECTED, and returns genuine media bridge connection state.
+@router.post("/api/supervisor/override")
+async def supervisor_override(
+    request: Request,
+    body: SupervisorOverrideRequest,
+    current_user: UserOut = Depends(get_current_supervisor),
+) -> Dict[str, Any]:
+    """Take over an active call: requires authenticated supervisor/dispatcher JWT,
+    validates session_id, changes state to supervisor_connected, halts automated TTS,
+    broadcasts SUPERVISOR_CONNECTED, and returns genuine media bridge connection state.
     """
     orchestrator = request.app.state.orchestrator
 
@@ -44,22 +62,87 @@ async def supervisor_override(request: Request, body: SupervisorOverrideRequest)
         raise HTTPException(status_code=404, detail=f"Session '{body.session_id}' not found.")
 
     # 2. Execute takeover & media bridge check
+    override_reason = body.reason or f"Takeover by {current_user.email} [{current_user.role}]"
     updated_session = await orchestrator.supervisor_override(
         session_id=session.session_id,
-        reason=body.reason,
+        reason=override_reason,
     )
+
+    # 3. Mark session in core pipeline to guarantee zero race condition AI speech
+    pipeline.mark_session_overridden(session.session_id, True)
 
     media_bridge = updated_session.media_bridge or {}
 
-    # 3. Expose real connection state without faking audio bridge success
+    # 4. Expose real connection state and supervisor audit info
     return {
         "status": "success",
         "session_id": updated_session.session_id,
         "session_status": updated_session.status.value,
         "tts_halted": updated_session.tts_halted,
         "reason": updated_session.supervisor_takeover_reason,
+        "supervisor": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "role": current_user.role,
+        },
         "media_bridge_connected": media_bridge.get("connected", False),
         "media_bridge": media_bridge,
+    }
+
+
+@router.post("/supervisor/release")
+@router.post("/api/supervisor/release")
+async def supervisor_release(
+    request: Request,
+    body: SupervisorReleaseRequest,
+    current_user: UserOut = Depends(get_current_supervisor),
+) -> Dict[str, Any]:
+    """Release an overridden call back to autonomous AI operation.
+    Requires authenticated supervisor/dispatcher JWT.
+    """
+    orchestrator = request.app.state.orchestrator
+
+    if not body.session_id or not body.session_id.strip():
+        raise HTTPException(status_code=422, detail="Valid session_id is required.")
+
+    session = orchestrator.get_session(body.session_id.strip())
+    if not session:
+        for s in orchestrator._sessions.values():
+            if s.call_sid == body.session_id.strip():
+                session = s
+                break
+
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{body.session_id}' not found.")
+
+    # Reset state
+    session.tts_halted = False
+    session.status = SessionStatus.ACTIVE
+    session.supervisor_takeover_reason = None
+    pipeline.mark_session_overridden(session.session_id, False)
+
+    await orchestrator.supabase_service.persist_session(
+        session.session_id,
+        {"status": session.status.value, "tts_halted": False, "supervisor_takeover_reason": None}
+    )
+
+    await orchestrator.emit_event(
+        session_id=session.session_id,
+        event_type=EventType.CALL_STARTED,
+        payload={
+            "action": "RELEASE_TO_AI",
+            "notes": body.notes,
+            "supervisor": current_user.email,
+            "status": session.status.value
+        }
+    )
+
+    return {
+        "status": "success",
+        "session_id": session.session_id,
+        "session_status": session.status.value,
+        "tts_halted": False,
+        "message": "Call successfully released back to autonomous AI",
     }
 
 

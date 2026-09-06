@@ -106,8 +106,89 @@ async def dashboard_websocket(
                 await websocket.send_json({"type": "PONG", "payload": {}})
                 continue
 
+            # Handle supervisor takeover commands via authenticated WebSocket
+            if msg_type in ["SUPERVISOR_TAKEOVER", "TAKEOVER"]:
+                role = (user.role or "").strip().lower()
+                if role not in ("supervisor", "lead_dispatcher", "dispatcher", "admin"):
+                    logger.warning(
+                        "Unauthorized WebSocket takeover attempt rejected for user %s with role '%s'",
+                        user.email, user.role
+                    )
+                    await websocket.send_json({
+                        "type": "ERROR",
+                        "event": "forbidden",
+                        "payload": {
+                            "detail": f"Forbidden: Role '{user.role}' is not authorized to perform call takeover. Required: supervisor or dispatcher."
+                        }
+                    })
+                    continue
+
+                payload_data = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+                call_id = payload_data.get("callId") or payload_data.get("session_id") or msg.get("callId") or msg.get("session_id")
+                notes = payload_data.get("notes") or msg.get("notes") or f"Supervisor takeover via WebSocket by {user.email}"
+
+                if not call_id:
+                    await websocket.send_json({
+                        "type": "ERROR",
+                        "event": "error",
+                        "payload": {"detail": "Missing callId or session_id in takeover payload"}
+                    })
+                    continue
+
+                orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+                if orchestrator:
+                    session = orchestrator.get_session(call_id)
+                    if not session:
+                        for s in orchestrator._sessions.values():
+                            if s.call_sid == call_id:
+                                session = s
+                                break
+                    if session:
+                        updated = await orchestrator.supervisor_override(session.session_id, reason=notes)
+                        pipeline.mark_session_overridden(session.session_id, True)
+                        await websocket.send_json({
+                            "type": "SUPERVISOR_TAKEOVER_SUCCESS",
+                            "event": "takeover_success",
+                            "payload": {
+                                "session_id": session.session_id,
+                                "status": updated.status.value,
+                                "tts_halted": updated.tts_halted,
+                                "supervisor": user.email
+                            }
+                        })
+                    else:
+                        logger.warning("Takeover session '%s' not found in orchestrator", call_id)
+
+            # Handle releasing call back to autonomous AI
+            elif msg_type in ["RELEASE_TO_AI", "RETURN_TO_AI"]:
+                role = (user.role or "").strip().lower()
+                if role not in ("supervisor", "lead_dispatcher", "dispatcher", "admin"):
+                    await websocket.send_json({
+                        "type": "ERROR",
+                        "event": "forbidden",
+                        "payload": {"detail": "Forbidden: Insufficient privileges to release call."}
+                    })
+                    continue
+
+                payload_data = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
+                call_id = payload_data.get("callId") or payload_data.get("session_id") or msg.get("callId") or msg.get("session_id")
+                if call_id:
+                    pipeline.mark_session_overridden(call_id, False)
+                    orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+                    if orchestrator:
+                        session = orchestrator.get_session(call_id)
+                        if session:
+                            session.tts_halted = False
+                            from app.models.session import SessionStatus
+                            session.status = SessionStatus.ACTIVE
+                            await websocket.send_json({
+                                "type": "AI_RESUMED",
+                                "event": "ai_resumed",
+                                "payload": {"session_id": session.session_id, "status": session.status.value}
+                            })
+
             # Handle live audio or test simulation from dashboard
-            if msg_type in ["SIMULATE_CALL", "AUDIO_CHUNK", "TEST_DISPATCH"]:
+            elif msg_type in ["SIMULATE_CALL", "AUDIO_CHUNK", "TEST_DISPATCH"]:
                 transcript = msg.get("transcript")
                 audio_payload = msg.get("payload") or msg.get("audio")
                 session_id = msg.get("session_id")
@@ -152,15 +233,19 @@ async def dashboard_stream_alias(
 
     await dashboard_manager.connect(websocket)
     try:
-        await websocket.send_json({
-            "type": "CONNECTION_ESTABLISHED",
-            "event": "connected",
-            "payload": {"message": "RESCURO Call Stream Connected"}
-        })
         while True:
             data = await websocket.receive_text()
             if "PING" in data:
                 await websocket.send_json({"type": "PONG"})
+            elif any(k in data.upper() for k in ["TAKEOVER", "OVERRIDE", "RELEASE"]):
+                logger.warning("Rejected unauthenticated takeover attempt on stream alias endpoint: %s", data[:100])
+                await websocket.send_json({
+                    "type": "ERROR",
+                    "event": "unauthorized",
+                    "payload": {
+                        "detail": "Authentication required. Call takeover is strictly restricted to authenticated supervisors via /ws/dashboard with a valid JWT or the authenticated REST API."
+                    }
+                })
     except WebSocketDisconnect:
         dashboard_manager.disconnect(websocket)
     except Exception:

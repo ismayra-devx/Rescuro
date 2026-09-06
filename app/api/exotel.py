@@ -203,6 +203,20 @@ async def exotel_media_websocket(websocket: WebSocket):
                         "transcript": transcript,
                         "category": orch_result.get("category"),
                     })
+            # Guardrail: Check if supervisor has taken over this call
+            orchestrator = getattr(websocket.app.state, "orchestrator", None) if hasattr(websocket, "app") else None
+            session_obj = orchestrator.get_session(active_session) if orchestrator and active_session else None
+            is_takeover = (
+                (session_obj and (session_obj.tts_halted or session_obj.status.value == "supervisor_connected"))
+                or (active_session and pipeline.is_session_overridden(active_session))
+            )
+            if is_takeover:
+                logger.info(
+                    "SUPERVISOR TAKEOVER ACTIVE: Suppressing automated TTS for session %s (supervisor in control)",
+                    active_session
+                )
+                return
+
             await dashboard_manager.broadcast("TTS_READY", {
                 "stream_id": stream_sid,
                 "session_id": active_session,

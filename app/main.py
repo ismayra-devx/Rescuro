@@ -155,7 +155,17 @@ def create_app() -> FastAPI:
         application.state.dashboard_websockets.add(websocket)
         try:
             while True:
-                await websocket.receive_text()
+                data = await websocket.receive_text()
+                if "PING" in data:
+                    await websocket.send_json({"type": "PONG"})
+                elif any(k in data.upper() for k in ["TAKEOVER", "OVERRIDE", "RELEASE"]):
+                    await websocket.send_json({
+                        "type": "ERROR",
+                        "event": "unauthorized",
+                        "payload": {
+                            "detail": "Authentication required. Call takeover is strictly restricted to authenticated supervisors via /ws/dashboard with a valid JWT or the authenticated REST API."
+                        }
+                    })
         except WebSocketDisconnect:
             application.state.dashboard_websockets.discard(websocket)
         except Exception:

@@ -428,6 +428,24 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return user
 
 
+ALLOWED_SUPERVISOR_ROLES = {"supervisor", "lead_dispatcher", "dispatcher", "admin"}
+
+
+async def get_current_supervisor(current_user: UserOut = Depends(get_current_user)) -> UserOut:
+    """Dependency enforcing that the authenticated user holds an authorized supervisor or dispatcher role."""
+    role = (current_user.role or "").strip().lower()
+    if role not in ALLOWED_SUPERVISOR_ROLES:
+        logger.warning(
+            "Takeover authorization rejected for user %s with role '%s'. Required roles: %s",
+            current_user.email, current_user.role, ALLOWED_SUPERVISOR_ROLES
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: Role '{current_user.role}' is not authorized to perform call takeover. Required: supervisor or dispatcher."
+        )
+    return current_user
+
+
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: UserOut = Depends(get_current_user)):
     """Retrieve authenticated user's profile."""
