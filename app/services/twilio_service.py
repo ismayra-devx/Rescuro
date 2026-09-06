@@ -70,3 +70,6 @@ class TwilioService:
         except Exception as e:
             logger.error(f"Twilio signature validation error: {e}")
             return False
+
+
+twilio_service = TwilioService()

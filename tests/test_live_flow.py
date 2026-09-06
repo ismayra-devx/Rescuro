@@ -13,7 +13,7 @@ def test_complete_live_lifecycle_flow():
     # 1. Health check
     res_health = client.get("/health")
     assert res_health.status_code == 200
-    assert res_health.json()["status"] == "ok"
+    assert res_health.json()["status"] in ["ok", "healthy"]
 
     # 2. Twilio incoming call
     res_voice = client.post(

@@ -220,3 +220,35 @@ class AgoraAudioAdapter(BaseAudioAdapter):
     def get_received_chunks(self, session_id: str) -> List[bytes]:
         """Inspect received audio chunks for verification."""
         return self._received_chunks.get(session_id, [])
+
+
+class AgoraService:
+    """Service wrapper for Agora RTC operations."""
+
+    def __init__(
+        self,
+        app_id: Optional[str] = None,
+        app_certificate: Optional[str] = None,
+    ):
+        self.app_id = app_id or settings.AGORA_APP_ID or "mock_app_id"
+        self.app_certificate = app_certificate or settings.AGORA_APP_CERTIFICATE or "mock_app_cert"
+
+    def generate_rtc_token(
+        self,
+        channel_name: str,
+        uid: int = 0,
+        role: int = 1,
+        expire_seconds: int = 3600,
+    ) -> str:
+        """Generate an RTC token for joining an Agora audio channel."""
+        return _generate_agora_rtc_token(
+            app_id=self.app_id,
+            app_certificate=self.app_certificate,
+            channel_name=channel_name,
+            uid=uid,
+            expire_seconds=expire_seconds,
+        )
+
+
+agora_service = AgoraService()
+generate_rtc_token = agora_service.generate_rtc_token

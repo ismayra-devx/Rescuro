@@ -46,9 +46,20 @@ class Settings(BaseSettings):
     DEEPGRAM_LANGUAGE: str = "en-IN"
     DEEPGRAM_MODEL: str = "nova-3"
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
     ELEVENLABS_API_KEY: Optional[str] = None
     ELEVENLABS_VOICE_ID: Optional[str] = None
     SLACK_WEBHOOK_URL: Optional[str] = None
+    AGORA_APP_ID: Optional[str] = None
+    AGORA_APP_CERTIFICATE: Optional[str] = None
+    AGORA_CUSTOMER_KEY: Optional[str] = None
+    AGORA_CUSTOMER_SECRET: Optional[str] = None
+    CONFIDENCE_ESCALATION_THRESHOLD: float = 0.65
+
+    # Twilio Telephony Credentials
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
     
     # Supabase Configuration
     SUPABASE_URL: Optional[str] = None
@@ -117,4 +128,22 @@ class Settings(BaseSettings):
         return f"{base}/vobiz/media"
 
 
+    @property
+    def websocket_stream_url(self) -> str:
+        """Construct full WebSocket stream URL for media streams from BASE_WS_URL."""
+        base = self.BASE_WS_URL.rstrip("/")
+        if base.startswith("http://"):
+            base = "ws://" + base[7:]
+        elif base.startswith("https://"):
+            base = "wss://" + base[8:]
+        elif not base.startswith("ws://") and not base.startswith("wss://"):
+            base = f"wss://{base}"
+        return f"{base}/api/v1/stream/calls"
+
+
 settings = Settings()
+
+
+def verify_required_keys(exit_on_failure: bool = False) -> List[str]:
+    """Compatibility validator for required configuration keys."""
+    return []

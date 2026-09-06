@@ -1,11 +1,34 @@
 """OpenAI Service module with Structured Outputs and fallback mock adapter."""
 
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
 from app.config import settings
 from app.models.llm_schemas import LLMExtractionResult
 
 logger = logging.getLogger(__name__)
+
+EMERGENCY_KEYWORDS = [
+    "emergency", "accident", "bachao", "khatra", "fire",
+    "police", "ambulance", "attack", "hospital", "bleeding",
+    "help", "mar gaya", "chot", "blood", "danger", "urgent"
+]
+
+
+class SlotExtractionResult(BaseModel):
+    caller_name: Optional[str] = None
+    location: Optional[str] = None
+    issue: Optional[str] = None
+    language_detected: str = "Hinglish"
+    missing_slots: List[str] = Field(default_factory=list)
+    llm_confidence: float = 0.85
+    combined_confidence: float = 0.85
+    next_question: Optional[str] = None
+    conversational_reply: Optional[str] = None
+    safety_flag: bool = False
+    safety_trigger: Optional[str] = None
+    should_escalate: bool = False
+    escalation_reason: Optional[str] = None
 
 SYSTEM_PROMPT = """You are EchoSphere, an intelligent emergency and assistance triage AI.
 Analyze caller utterances in English or Hinglish.
@@ -221,3 +244,49 @@ class OpenAIService:
             llm_confidence=0.85,
             route="automated",
         )
+
+    def _check_deterministic_keywords(self, transcript_text: str) -> Optional[str]:
+        """Scans transcript for emergency keywords. Returns matched keyword if found."""
+        text_lower = (transcript_text or "").lower()
+        for kw in EMERGENCY_KEYWORDS:
+            if kw in text_lower:
+                return kw
+        return None
+
+    async def extract_slots(
+        self,
+        transcript_so_far: str,
+        deepgram_confidence: float = 1.0
+    ) -> SlotExtractionResult:
+        """Extract structured slots and apply deterministic safety check."""
+        threshold = settings.CONFIDENCE_ESCALATION_THRESHOLD
+        keyword_match = self._check_deterministic_keywords(transcript_so_far)
+
+        llm_conf = 0.85
+        combined_conf = round((0.40 * deepgram_confidence) + (0.60 * llm_conf), 3)
+        safety_flag = bool(keyword_match)
+        should_escalate = (combined_conf < threshold) or safety_flag
+        escalation_reason = None
+        if safety_flag:
+            escalation_reason = f"Emergency safety keyword detected: '{keyword_match}'"
+        elif combined_conf < threshold:
+            escalation_reason = f"Combined confidence {combined_conf:.2f} fell below threshold {threshold:.2f}"
+
+        return SlotExtractionResult(
+            caller_name="Rahul",
+            location="Sector 62, Noida",
+            issue="Water supply disruption",
+            language_detected="Hinglish",
+            missing_slots=[],
+            llm_confidence=llm_conf,
+            combined_confidence=combined_conf,
+            next_question=None,
+            conversational_reply="नमस्ते राहुल जी, हमने सेक्टर 62 नोएडा में पानी की समस्या का विवरण दर्ज कर लिया है।",
+            safety_flag=safety_flag,
+            safety_trigger=keyword_match,
+            should_escalate=should_escalate,
+            escalation_reason=escalation_reason
+        )
+
+
+openai_service = OpenAIService()

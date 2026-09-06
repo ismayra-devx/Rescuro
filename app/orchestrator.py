@@ -353,5 +353,7 @@ class EchoSphereOrchestrator:
         return session
 
 
-# Backwards compatibility alias
+# Backwards compatibility aliases
 BattleBuddyOrchestrator = EchoSphereOrchestrator
+VoicePipelineOrchestrator = EchoSphereOrchestrator
+

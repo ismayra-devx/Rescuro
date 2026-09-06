@@ -23,6 +23,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.services.deepgram_service import deepgram_service
+from app.config import settings
 
 # Standard verbal hesitation fillers to normalize symmetrically
 FILLER_WORDS = {"uh", "um", "ah", "er", "eh", "hmm", "mhm"}
@@ -260,33 +261,334 @@ def run_self_test() -> Dict[str, Any]:
     return summary
 
 
+BASELINE_METRICS = {
+    "word_accuracy_pct": 79.34,
+    "wer_pct": 22.21,
+    "substitutions": 5942,
+    "deletions": 2254,
+    "insertions": 614,
+    "total_errors": 8810,
+    "total_reference_words": 39667,
+    "processed_samples": 500
+}
+
+
+def load_dataset(filepath: str) -> List[Dict[str, Any]]:
+    """
+    Loads a dataset from CSV or JSON file.
+    Normalizes field names to: id, reference, audio, prediction.
+    """
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"Dataset file not found at: {filepath}")
+
+    ext = os.path.splitext(filepath)[1].lower()
+    samples = []
+
+    if ext == ".json":
+        with open(filepath, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        items = raw if isinstance(raw, list) else raw.get("samples", raw.get("data", []))
+        for i, item in enumerate(items):
+            sid = str(item.get("id") or item.get("sample_id") or f"sample_{i+1:04d}")
+            ref = str(item.get("reference") or item.get("ref") or item.get("ground_truth") or item.get("text") or "")
+            aud = str(item.get("audio") or item.get("audio_path") or item.get("file") or "")
+            pred = str(item.get("prediction") or item.get("hyp") or item.get("hypothesis") or item.get("transcript") or "")
+            samples.append({"id": sid, "reference": ref, "audio": aud, "prediction": pred})
+
+    elif ext in [".csv", ".tsv"]:
+        delimiter = "\t" if ext == ".tsv" else ","
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            reader = csv.DictReader(f, delimiter=delimiter)
+            # Find matching headers
+            for i, row in enumerate(reader):
+                # ID resolution
+                sid = ""
+                for k in ["id", "sample_id", "index", "call_id", "name"]:
+                    if k in row and row[k]:
+                        sid = row[k]
+                        break
+                if not sid:
+                    sid = f"sample_{i+1:04d}"
+
+                # Reference resolution
+                ref = ""
+                for k in ["reference", "ref", "ground_truth", "text", "transcript_ref", "expected"]:
+                    if k in row and row[k]:
+                        ref = row[k]
+                        break
+
+                # Audio path resolution
+                aud = ""
+                for k in ["audio", "audio_path", "audio_file", "file", "path", "audio_url"]:
+                    if k in row and row[k]:
+                        aud = row[k]
+                        break
+
+                # Prediction resolution
+                pred = ""
+                for k in ["prediction", "hyp", "hypothesis", "transcript", "transcription", "pred"]:
+                    if k in row and row[k]:
+                        pred = row[k]
+                        break
+
+                samples.append({"id": sid, "reference": ref, "audio": aud, "prediction": pred})
+    else:
+        raise ValueError(f"Unsupported dataset extension '{ext}'. Must be .csv, .tsv, or .json")
+
+    return samples
+
+
+async def transcribe_audio_sample(
+    audio_path: str,
+    mime_type: str = "audio/wav"
+) -> Tuple[str, bool, str]:
+    """
+    Transcribes a local audio file or URL using DeepgramService.
+    Returns: (transcript, is_corrupted, exclusion_reason)
+    """
+    if not audio_path or not os.path.exists(audio_path):
+        return "", True, f"Audio file not found or inaccessible: {audio_path}"
+
+    try:
+        size = os.path.getsize(audio_path)
+        if size == 0:
+            return "", True, f"0-byte empty audio file: {audio_path}"
+
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+
+        res = await deepgram_service.transcribe_prerecorded(audio_bytes, mime_type=mime_type)
+        transcript = res.get("transcript", "")
+        return transcript, False, ""
+    except Exception as exc:
+        return "", True, f"Corrupted audio or read error: {exc}"
+
+
+def print_comparison_table(summary: Dict[str, Any]):
+    """Prints a clear, side-by-side Before/After evaluation table."""
+    b = BASELINE_METRICS
+    s = summary
+
+    orig_acc = b["word_accuracy_pct"]
+    new_acc = s["word_accuracy_pct"]
+    acc_diff = new_acc - orig_acc
+
+    orig_wer = b["wer_pct"]
+    new_wer = s["wer_pct"]
+    wer_diff = new_wer - orig_wer
+
+    orig_subs = b["substitutions"]
+    new_subs = s["substitutions"]
+    subs_diff = new_subs - orig_subs
+
+    orig_dels = b["deletions"]
+    new_dels = s["deletions"]
+    dels_diff = new_dels - orig_dels
+
+    orig_ins = b["insertions"]
+    new_ins = s["insertions"]
+    ins_diff = new_ins - orig_ins
+
+    orig_err = b["total_errors"]
+    new_err = new_subs + new_dels + new_ins
+    err_diff = new_err - orig_err
+
+    target_reached = new_acc >= 85.0
+    status_str = "REACHED (+85% Target Met)" if target_reached else "NOT MET (Still < 85%)"
+
+    print("\n" + "=" * 92)
+    print("                RESCURO ASR BENCHMARK: BEFORE vs AFTER PIPELINE UPGRADE")
+    print("=" * 92)
+    print(f"{'Metric':<28} | {'Original Baseline':<22} | {'Updated Deepgram':<20} | {'Improvement':<12}")
+    print("-" * 28 + "-+-" + "-" * 22 + "-+-" + "-" * 20 + "-+-" + "-" * 12)
+    print(f"{'Word Accuracy':<28} | {orig_acc:>19.2f}% | {new_acc:>17.2f}% | {acc_diff:>+9.2f} pp")
+    print(f"{'Word Error Rate (WER)':<28} | {orig_wer:>19.2f}% | {new_wer:>17.2f}% | {wer_diff:>+9.2f} pp")
+    print(f"{'Substitutions':<28} | {orig_subs:>20,d} | {new_subs:>18,d} | {subs_diff:>+10,d}")
+    print(f"{'Deletions':<28} | {orig_dels:>20,d} | {new_dels:>18,d} | {dels_diff:>+10,d}")
+    print(f"{'Insertions':<28} | {orig_ins:>20,d} | {new_ins:>18,d} | {ins_diff:>+10,d}")
+    print(f"{'Total Errors':<28} | {orig_err:>20,d} | {new_err:>18,d} | {err_diff:>+10,d}")
+    print(f"{'Total Reference Words':<28} | {b['total_reference_words']:>20,d} | {s['total_reference_words']:>18,d} | {'-':>10}")
+    print(f"{'Processed Samples':<28} | {b['processed_samples']:>20,d} | {s['processed_samples']:>18,d} | {'-':>10}")
+    print(f"{'Excluded Corrupt Samples':<28} | {'0':>20} | {s['excluded_corrupted_samples']:>18,d} | {'-':>10}")
+    print("-" * 28 + "-+-" + "-" * 22 + "-+-" + "-" * 20 + "-+-" + "-" * 12)
+    print(f"{'85%+ Target Status':<28} | {'FAILED (79.34%)':<22} | {status_str:<20} | {'':<10}")
+    print("=" * 92 + "\n")
+
+
+def print_worst_samples(sample_results: List[Dict[str, Any]], top_n: int = 20):
+    """
+    Identifies and prints the worst-scoring samples ranked by total errors.
+    """
+    # Sort samples by total errors descending, then accuracy ascending
+    ranked = sorted(
+        sample_results,
+        key=lambda x: (x["substitutions"] + x["deletions"] + x["insertions"], -x["accuracy"]),
+        reverse=True
+    )
+
+    worst = ranked[:top_n]
+    print("\n" + "=" * 96)
+    print(f"               TOP {len(worst)} WORST-SCORING SAMPLES (DIAGNOSTIC ERROR REVIEW)")
+    print("=" * 96)
+
+    for i, s in enumerate(worst, start=1):
+        err_count = s["substitutions"] + s["deletions"] + s["insertions"]
+        print(f"\n[{i:02d}] Sample ID: {s['id']} | Word Accuracy: {s['accuracy']}% | Total Errors: {err_count} (Sub: {s['substitutions']}, Del: {s['deletions']}, Ins: {s['insertions']})")
+        print(f"     REFERENCE:  \"{s['ref_raw']}\"")
+        print(f"     PREDICTION: \"{s['hyp_raw']}\"")
+        print(f"     NORM REF:   \"{s['ref_normalized']}\"")
+        print(f"     NORM HYP:   \"{s['hyp_normalized']}\"")
+
+    print("\n" + "=" * 96)
+
+
+async def execute_evaluation(
+    dataset_path: str,
+    save_csv_path: str = "rescuro_final_results_v2.csv",
+    output_json_path: Optional[str] = None,
+    api_key: Optional[str] = None
+):
+    """
+    Orchestrates full dataset evaluation, live transcription (if audio available),
+    scoring, CSV output, and comparative analysis.
+    """
+    if api_key:
+        deepgram_service.api_key = api_key
+
+    print(f"Loading benchmark dataset from: {dataset_path}")
+    samples = load_dataset(dataset_path)
+    total_samples = len(samples)
+    print(f"Loaded {total_samples} samples.")
+
+    evaluator = ASREvaluator()
+    results_for_csv = []
+    excluded_samples_log = []
+
+    print(f"Transcribing and scoring {total_samples} samples with Deepgram config...")
+    print(f" - Model: {settings.DEEPGRAM_MODEL}")
+    print(f" - Language: {settings.DEEPGRAM_LANGUAGE}")
+    print(" - Keyword Boosting: 15 Emergency Terms (weights 2-3)")
+    print(" - Turn Detection: endpointing=300ms, utterance_end_ms=1000ms\n")
+
+    for i, item in enumerate(samples, start=1):
+        sid = item["id"]
+        ref = item["reference"]
+        aud = item["audio"]
+        pred = item["prediction"]
+
+        # If audio path exists and prediction is empty, transcribe freshly
+        if aud and not pred:
+            hyp, is_corrupt, reason = await transcribe_audio_sample(aud)
+            if is_corrupt:
+                excluded_samples_log.append({"id": sid, "audio": aud, "reason": reason})
+                evaluator.evaluate_pair(sid, ref, "", is_corrupted_or_empty=True)
+                continue
+        else:
+            hyp = pred
+
+        eval_res = evaluator.evaluate_pair(sid, ref, hyp)
+        if eval_res:
+            results_for_csv.append(eval_res)
+
+        if i % 50 == 0 or i == total_samples:
+            print(f"  Processed {i}/{total_samples} samples...")
+
+    summary = evaluator.get_summary()
+
+    # Save to CSV
+    if save_csv_path:
+        csv_dir = os.path.dirname(save_csv_path)
+        if csv_dir:
+            os.makedirs(csv_dir, exist_ok=True)
+        with open(save_csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "sample_id",
+                "reference_raw",
+                "prediction_raw",
+                "reference_normalized",
+                "prediction_normalized",
+                "reference_words",
+                "hypothesis_words",
+                "substitutions",
+                "deletions",
+                "insertions",
+                "correct",
+                "wer_pct",
+                "word_accuracy_pct"
+            ])
+            for r in results_for_csv:
+                writer.writerow([
+                    r["id"],
+                    r["ref_raw"],
+                    r["hyp_raw"],
+                    r["ref_normalized"],
+                    r["hyp_normalized"],
+                    r["ref_words"],
+                    r["hyp_words"],
+                    r["substitutions"],
+                    r["deletions"],
+                    r["insertions"],
+                    r["correct"],
+                    r["wer"],
+                    r["accuracy"]
+                ])
+        print(f"\nFresh predictions and scoring saved to: {os.path.abspath(save_csv_path)}")
+
+    # Save JSON output if requested
+    if output_json_path:
+        out_payload = {
+            "summary": summary,
+            "baseline": BASELINE_METRICS,
+            "excluded_corrupted_samples": excluded_samples_log,
+            "samples": results_for_csv
+        }
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump(out_payload, f, indent=2)
+        print(f"JSON evaluation report saved to: {os.path.abspath(output_json_path)}")
+
+    # Print comparison table
+    print_comparison_table(summary)
+
+    # If accuracy is below 85%, print top 20 worst samples and targeted recommendations
+    if summary["word_accuracy_pct"] < 85.0 and results_for_csv:
+        print_worst_samples(results_for_csv, top_n=20)
+        print("DIAGNOSTIC PATTERN ANALYSIS & RECOMMENDED ADJUSTMENTS:")
+        print("1. Phonetic & Regional Accent Boosts:")
+        print("   - Boost Indian English locational identifiers: 'Chowk:2', 'Marg:2', 'Sector:2', 'Noida:2', 'Flyover:2'.")
+        print("   - Boost Hinglish emergency markers: 'Bachao:3', 'Aag:3', 'Madad:3', 'Ghaayal:2'.")
+        print("2. Endpointing & Acoustic Tuning:")
+        print("   - For rapid or high-stress panic speech, reduce `endpointing` to 250ms and verify linear16 sampling.")
+        print("   - Use `smart_format=True` with search-and-replace normalization for common homophones.\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="RESCURO ASR / WER Evaluation Tool")
     parser.add_argument("--dataset", type=str, help="Path to JSON or CSV dataset file with reference/hypothesis")
     parser.add_argument("--self-test", action="store_true", help="Run internal validation test suite")
     parser.add_argument("--output", type=str, help="Path to write JSON evaluation results")
+    parser.add_argument("--save-csv", type=str, default="rescuro_final_results_v2.csv", help="Path to write CSV predictions")
+    parser.add_argument("--api-key", type=str, help="Override Deepgram API key")
     args = parser.parse_args()
 
     if args.self_test:
         print("Running RESCURO ASR Evaluation Self-Test...")
         results = run_self_test()
-        print("\n=== RESCURO ASR BENCHMARK SUMMARY ===")
-        print(f"Processed Utterances:   {results['processed_samples']}")
-        print(f"Total Reference Words: {results['total_reference_words']}")
-        print(f"Substitutions:         {results['substitutions']} ({results['substitution_rate_pct']}%)")
-        print(f"Deletions:             {results['deletions']} ({results['deletion_rate_pct']}%)")
-        print(f"Insertions:            {results['insertions']} ({results['insertion_rate_pct']}%)")
-        print(f"Correct Words:         {results['correct']}")
-        print(f"Word Error Rate (WER): {results['wer_pct']}%")
-        print(f"Word Accuracy:         {results['word_accuracy_pct']}%")
-        print(f"Recognition Rate:      {results['word_recognition_rate_pct']}%")
-        print("=====================================\n")
+        print_comparison_table(results)
         return
 
     if not args.dataset:
         print("Usage: python scripts/evaluate_asr.py --self-test OR --dataset <path_to_json_or_csv>")
         sys.exit(1)
 
+    asyncio.run(execute_evaluation(
+        dataset_path=args.dataset,
+        save_csv_path=args.save_csv,
+        output_json_path=args.output,
+        api_key=args.api_key
+    ))
+
 
 if __name__ == "__main__":
     main()
+

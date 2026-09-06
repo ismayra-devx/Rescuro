@@ -119,3 +119,70 @@ def test_evaluator_un_gamed_metrics():
     assert summary["insertions"] == 0
     assert summary["wer_pct"] == 16.67
     assert summary["word_accuracy_pct"] == 83.33
+
+
+def test_load_dataset_csv_and_json(tmp_path):
+    """Verify load_dataset parses CSV and JSON formats with varied header names."""
+    from scripts.evaluate_asr import load_dataset
+
+    # 1. Test CSV format
+    csv_file = tmp_path / "test_benchmark.csv"
+    csv_file.write_text(
+        "call_id,ground_truth,hypothesis\n"
+        "call_01,ambulance needed immediately,ambulance needed immediately\n"
+        "call_02,major fire near bridge,major fire near bridge\n",
+        encoding="utf-8"
+    )
+    samples = load_dataset(str(csv_file))
+    assert len(samples) == 2
+    assert samples[0]["id"] == "call_01"
+    assert samples[0]["reference"] == "ambulance needed immediately"
+    assert samples[0]["prediction"] == "ambulance needed immediately"
+
+    # 2. Test JSON format
+    json_file = tmp_path / "test_benchmark.json"
+    import json
+    json_data = [
+        {"id": "j1", "reference": "two people injured", "prediction": "two people injured"},
+        {"id": "j2", "reference": "send police to market", "prediction": "send police to bazaar"}
+    ]
+    json_file.write_text(json.dumps(json_data), encoding="utf-8")
+    json_samples = load_dataset(str(json_file))
+    assert len(json_samples) == 2
+    assert json_samples[1]["prediction"] == "send police to bazaar"
+
+
+@pytest.mark.asyncio
+async def test_execute_evaluation_runner(tmp_path):
+    """Verify execute_evaluation produces valid rescuro_final_results_v2.csv and summary."""
+    from scripts.evaluate_asr import execute_evaluation
+    import csv
+
+    test_csv = tmp_path / "eval_input.csv"
+    test_csv.write_text(
+        "id,reference,prediction\n"
+        "s1,emergency please send ambulance to sector 62,emergency please send ambulance to sector 62\n"
+        "s2,fire broke out in electrical room,fire broke out in room\n", # deletion of "electrical"
+        encoding="utf-8"
+    )
+
+    out_csv = tmp_path / "rescuro_final_results_v2.csv"
+    out_json = tmp_path / "eval_report.json"
+
+    await execute_evaluation(
+        dataset_path=str(test_csv),
+        save_csv_path=str(out_csv),
+        output_json_path=str(out_json)
+    )
+
+    assert out_csv.exists()
+    assert out_json.exists()
+
+    with open(out_csv, "r", encoding="utf-8") as f:
+        reader = list(csv.DictReader(f))
+        assert len(reader) == 2
+        assert reader[0]["sample_id"] == "s1"
+        assert float(reader[0]["word_accuracy_pct"]) == 100.0
+        assert reader[1]["sample_id"] == "s2"
+        assert int(reader[1]["deletions"]) == 1
+
