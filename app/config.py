@@ -42,18 +42,18 @@ class Settings(BaseSettings):
     TTS_PROVIDER: str = "stub"
 
     # Provider API keys (Optional placeholders for when providers are chosen)
-    DEEPGRAM_API_KEY: Optional[str] = None
+    DEEPGRAM_API_KEY: str = ""
     DEEPGRAM_LANGUAGE: str = "en-IN"
     DEEPGRAM_MODEL: str = "nova-3"
-    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
-    ELEVENLABS_API_KEY: Optional[str] = None
-    ELEVENLABS_VOICE_ID: Optional[str] = None
-    SLACK_WEBHOOK_URL: Optional[str] = None
-    AGORA_APP_ID: Optional[str] = None
-    AGORA_APP_CERTIFICATE: Optional[str] = None
-    AGORA_CUSTOMER_KEY: Optional[str] = None
-    AGORA_CUSTOMER_SECRET: Optional[str] = None
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_VOICE_ID: str = ""
+    SLACK_WEBHOOK_URL: str = ""
+    AGORA_APP_ID: str = ""
+    AGORA_APP_CERTIFICATE: str = ""
+    AGORA_CUSTOMER_KEY: str = ""
+    AGORA_CUSTOMER_SECRET: str = ""
     CONFIDENCE_ESCALATION_THRESHOLD: float = 0.65
 
     # Twilio Telephony Credentials
