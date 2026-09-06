@@ -138,13 +138,9 @@ class DeepgramService:
         ]
 
         # In Nova-3, multilingual code-switching is native with language=multi.
-        # Legacy extra=code_switch is ONLY for older models (nova-2) with specific language pairs.
+        # Note: 'keywords' is unsupported on Nova-3.
         if chosen_model == "nova-2" and chosen_lang in ("hi", "es"):
             params.append("extra=code_switch:true")
-
-        # Emergency dispatch keyword boosting
-        for kw, weight in EMERGENCY_KEYWORDS.items():
-            params.append(f"keywords={kw}:{weight}")
 
         return "&".join(params)
 
@@ -317,8 +313,7 @@ class DeepgramService:
         if model_tier == "nova-2" and target_lang in ("hi", "es"):
             params.append(("extra", "code_switch:true"))
 
-        for kw, weight in EMERGENCY_KEYWORDS.items():
-            params.append(("keywords", f"{kw}:{weight}"))
+        # Note: 'keywords' is unsupported on Nova-3.
 
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:

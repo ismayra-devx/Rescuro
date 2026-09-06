@@ -72,14 +72,9 @@ def test_nova3_multilingual_websocket_configuration():
     assert param_dict.get("endpointing") == "300"
     assert param_dict.get("utterance_end_ms") == "1000"
 
-    # 5. Domain keywords boosted
-    assert "ambulance:3" in keywords
-    assert "emergency:3" in keywords
-    assert "accident:2" in keywords
-    assert "police:2" in keywords
-    assert "fire:2" in keywords
-    assert "bachao:2" in keywords
-    assert "madad:2" in keywords
+    # 5. Keywords parameter must NOT be sent for Nova-3 (unsupported in Nova-3)
+    assert len(keywords) == 0, "Keywords must not be sent for Nova-3"
+    assert "keywords=" not in params_str
 
 
 @pytest.mark.asyncio
@@ -125,6 +120,7 @@ async def test_nova3_multilingual_rest_configuration():
     assert param_dict.get("sample_rate") == "8000"
     assert param_dict.get("channels") == "1"
     assert "extra" not in param_dict, "Nova-3 must NOT include extra=code_switch parameter"
+    assert "keywords" not in param_dict, "Nova-3 must NOT include keywords parameter"
 
     # Verify return payload contains multilingual language metadata
     assert res["transcript"] == "Mera accident ho gaya hai"

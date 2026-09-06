@@ -38,16 +38,9 @@ def test_deepgram_query_params_defaults():
     assert param_dict.get("encoding") == "linear16"
     assert param_dict.get("sample_rate") == "8000"
 
-    # 6. Verify domain emergency keywords boosted
-    assert "ambulance:3" in keywords
-    assert "emergency:3" in keywords
-    assert "accident:2" in keywords
-    assert "police:2" in keywords
-    assert "fire:2" in keywords
-    assert "injured:2" in keywords
-    assert "unconscious:2" in keywords
-    assert "bleeding:2" in keywords
-    assert "hospital:2" in keywords
+    # 6. Verify keywords parameter is NOT sent for Nova-3 (unsupported on Nova-3)
+    assert len(keywords) == 0, "Keywords must not be sent for Nova-3"
+    assert "keywords=" not in params_str
 
 
 def test_deepgram_query_params_custom_overrides():
