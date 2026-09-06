@@ -402,6 +402,16 @@ export const LiveStreamProvider = ({ children }) => {
             setTakeoverModalCallId(callId);
         }
         wsService.sendAction('SUPERVISOR_TAKEOVER', { callId, notes: 'Supervisor manual audio line intervention via Rescuro Console' });
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
+            if (token) {
+                fetch('/supervisor/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ session_id: callId, reason: 'Supervisor manual audio line intervention via Rescuro Console' })
+                }).catch(() => {});
+            }
+        } catch (_) {}
     }, []);
 
     const releaseCallToAi = useCallback((callId) => {
@@ -419,6 +429,17 @@ export const LiveStreamProvider = ({ children }) => {
         }));
         setIsSupervisorOnHold(false);
         setTakeoverModalCallId(prev => prev === callId ? null : prev);
+        wsService.sendAction('RELEASE_TO_AI', { callId });
+        try {
+            const token = typeof window !== 'undefined' ? localStorage.getItem('rescuro_jwt') : null;
+            if (token) {
+                fetch('/supervisor/release', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ session_id: callId, notes: 'Supervisor returned call to autonomous AI' })
+                }).catch(() => {});
+            }
+        } catch (_) {}
     }, []);
 
     const resolveCall = useCallback((callId) => {

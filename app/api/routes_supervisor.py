@@ -1,5 +1,4 @@
-"""Supervisor override and session inspection routes."""
-
+import logging
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
@@ -9,6 +8,7 @@ from app.models.session import SessionStatus
 from app.models.events import EventType
 from app.services import pipeline
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Supervisor & Sessions"])
 
 
@@ -71,6 +71,11 @@ async def supervisor_override(
     # 3. Mark session in core pipeline to guarantee zero race condition AI speech
     pipeline.mark_session_overridden(session.session_id, True)
 
+    logger.info(
+        "SUPERVISOR TOOK OVER call session_id=%s by %s [%s]",
+        session.session_id, current_user.email, current_user.role
+    )
+
     media_bridge = updated_session.media_bridge or {}
 
     # 4. Expose real connection state and supervisor audit info
@@ -120,6 +125,11 @@ async def supervisor_release(
     session.status = SessionStatus.ACTIVE
     session.supervisor_takeover_reason = None
     pipeline.mark_session_overridden(session.session_id, False)
+
+    logger.info(
+        "SUPERVISOR RELEASED call session_id=%s back to AI by %s [%s]",
+        session.session_id, current_user.email, current_user.role
+    )
 
     await orchestrator.supabase_service.persist_session(
         session.session_id,

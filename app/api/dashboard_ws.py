@@ -146,6 +146,10 @@ async def dashboard_websocket(
                     if session:
                         updated = await orchestrator.supervisor_override(session.session_id, reason=notes)
                         pipeline.mark_session_overridden(session.session_id, True)
+                        logger.info(
+                            "SUPERVISOR TOOK OVER call session_id=%s by %s [%s]",
+                            session.session_id, user.email, user.role
+                        )
                         await websocket.send_json({
                             "type": "SUPERVISOR_TAKEOVER_SUCCESS",
                             "event": "takeover_success",
@@ -181,6 +185,10 @@ async def dashboard_websocket(
                             session.tts_halted = False
                             from app.models.session import SessionStatus
                             session.status = SessionStatus.ACTIVE
+                            logger.info(
+                                "SUPERVISOR RELEASED call session_id=%s back to AI by %s [%s]",
+                                session.session_id, user.email, user.role
+                            )
                             await websocket.send_json({
                                 "type": "AI_RESUMED",
                                 "event": "ai_resumed",
