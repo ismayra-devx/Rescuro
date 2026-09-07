@@ -96,6 +96,22 @@ async def dashboard_websocket(
         }
     })
 
+    # Synchronize currently active Exotel streams to newly connected dashboard
+    for s_id, stream_info in list(audio_bridge._exotel_streams.items()):
+        await websocket.send_json({
+            "type": "EXOTEL_CALL_STARTED",
+            "event": "start",
+            "payload": {
+                "session_id": s_id,
+                "call_id": s_id,
+                "stream_id": stream_info.get("stream_sid"),
+                "stream_sid": stream_info.get("stream_sid"),
+                "caller": stream_info.get("call_sid") or "Exotel Live Line",
+                "source": "exotel",
+                "status": "ACTIVE"
+            }
+        })
+
     # 3. Message loop
     try:
         while True:
@@ -325,6 +341,25 @@ async def dashboard_stream_alias(
             pass
 
     await dashboard_manager.connect(websocket)
+
+    # Synchronize currently active Exotel streams to newly connected client
+    for s_id, stream_info in list(audio_bridge._exotel_streams.items()):
+        try:
+            await websocket.send_json({
+                "type": "EXOTEL_CALL_STARTED",
+                "event": "start",
+                "payload": {
+                    "session_id": s_id,
+                    "call_id": s_id,
+                    "stream_id": stream_info.get("stream_sid"),
+                    "stream_sid": stream_info.get("stream_sid"),
+                    "caller": stream_info.get("call_sid") or "Exotel Live Line",
+                    "source": "exotel",
+                    "status": "ACTIVE"
+                }
+            })
+        except Exception:
+            pass
     try:
         while True:
             data = await websocket.receive_text()

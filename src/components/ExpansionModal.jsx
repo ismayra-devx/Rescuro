@@ -54,7 +54,7 @@ export const ExpansionModal = ({ activeCardKey, originRect, onClose, onToast }) 
                 return {
                     title: 'Active Concurrent Calls Registry',
                     subtitle: 'Live SIP Channels • Carrier Interconnect Route A-09',
-                    badge: `${activeCalls?.length || 6} ACTIVE CHANNELS`,
+                    badge: `${activeCalls?.length ?? 0} ACTIVE CHANNELS`,
                     badgeColor: 'indigo',
                     icon: PhoneCall
                 };

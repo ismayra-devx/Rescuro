@@ -18,7 +18,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'rose',
         urgency: 'CRITICAL',
         snippet: 'Accident ho gaya hai metro station ke paas, ek aadmi ko severe chot lagi hai...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     },
     { 
         id: 'C-1022', 
@@ -33,7 +35,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'rose',
         urgency: 'HIGH',
         snippet: 'My colleague collapsed in the office corridor, breathing is shallow...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     },
     { 
         id: 'C-1023', 
@@ -48,7 +52,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'amber',
         urgency: 'MEDIUM',
         snippet: 'Dukan ke peeche bohot tej gas ki badboo aa rahi hai, log ikattha hain...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     },
     { 
         id: 'C-1024', 
@@ -63,7 +69,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'blue',
         urgency: 'LOW',
         snippet: 'Bike slip hui thi rain mein, haath mein chhil gaya hai, bandage chahiye...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     },
     { 
         id: 'C-1025', 
@@ -78,7 +86,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'blue',
         urgency: 'LOW',
         snippet: 'Tripped near Inner Circle block B, unable to put weight on right foot...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     },
     { 
         id: 'C-1026', 
@@ -93,7 +103,9 @@ export const INITIAL_CALLS_LIST = [
         riskColor: 'amber',
         urgency: 'MEDIUM',
         snippet: '14th floor balcony se black smoke nikal raha hai Gaur City tower 4...',
-        supervisorOverridden: false
+        supervisorOverridden: false,
+        isMock: true,
+        isLive: false
     }
 ];
 
@@ -239,6 +251,10 @@ export const LiveStreamProvider = ({ children }) => {
                     isAi: isAi
                 }
             ]);
+            const sessionId = msg.session_id || msg.payload?.session_id || msg.payload?.call_id || msg.call_id;
+            if (sessionId) {
+                setActiveCalls(prev => prev.map(c => (c.id === sessionId || c.call_id === sessionId) ? { ...c, snippet: text } : c));
+            }
         };
 
         const handleNewCall = (msg) => {
@@ -246,7 +262,6 @@ export const LiveStreamProvider = ({ children }) => {
             const sessionId = payload.session_id || payload.call_id || msg.session_id || msg.call_id;
             if (!sessionId) return;
             setActiveCalls(prev => {
-                const existingIdx = prev.findIndex(c => c.id === sessionId || c.id === payload.call_id || c.id === payload.session_id);
                 const callData = {
                     id: sessionId,
                     call_id: sessionId,
@@ -263,14 +278,12 @@ export const LiveStreamProvider = ({ children }) => {
                     snippet: 'Live voice session connected...',
                     supervisorOverridden: false,
                     source: payload.source || 'exotel',
-                    isLive: true
+                    isLive: true,
+                    isMock: false
                 };
-                if (existingIdx >= 0) {
-                    const updated = [...prev];
-                    updated[existingIdx] = { ...updated[existingIdx], ...callData };
-                    return updated;
-                }
-                return [callData, ...prev];
+                // When an active call is going on, filter out all mock calls so the dashboard displays ONLY the live active call
+                const liveCalls = prev.filter(c => (c.isLive || c.source === 'exotel' || c.id?.startsWith('EXO-')) && !c.isMock && c.id !== sessionId);
+                return [callData, ...liveCalls];
             });
         };
 
@@ -324,9 +337,9 @@ export const LiveStreamProvider = ({ children }) => {
 
         const handleCallEnded = (msg) => {
             const payload = msg.payload || msg;
-            const sessionId = msg.session_id || payload.session_id;
+            const sessionId = msg.session_id || payload.session_id || payload.call_id;
             if (sessionId) {
-                setActiveCalls(prev => prev.filter(c => c.id !== sessionId));
+                setActiveCalls(prev => prev.filter(c => c.id !== sessionId && c.call_id !== sessionId));
             }
         };
 
@@ -334,19 +347,46 @@ export const LiveStreamProvider = ({ children }) => {
             const payload = msg.payload || msg;
             const sessionId = msg.session_id || payload.session_id || payload.call_id;
             if (sessionId) {
-                setActiveCalls(prev => prev.map(c => {
-                    if (c.id === sessionId) {
-                        return {
-                            ...c,
-                            urgency: 'CRITICAL',
+                setActiveCalls(prev => {
+                    const liveCalls = prev.filter(c => !c.isMock);
+                    const exists = liveCalls.some(c => c.id === sessionId);
+                    let base = liveCalls;
+                    if (!exists) {
+                        const newLive = {
+                            id: sessionId,
+                            call_id: sessionId,
+                            caller: payload.caller || '+91 Live Line',
+                            maskedId: '****' + (sessionId.slice(-4)),
+                            location: 'Realtime Exotel Voice Line',
+                            incident: 'Caller Demands Human Supervisor',
+                            agent: 'Agent Nova-Triage',
+                            lang: 'Hinglish',
+                            durationSec: 0,
                             risk: 'HIGH',
                             riskColor: 'rose',
-                            status: 'Supervisor Requested by Caller',
-                            snippet: payload.reason || 'Caller verbally requested human supervisor takeover.'
+                            urgency: 'CRITICAL',
+                            snippet: payload.reason || 'Caller verbally requested human supervisor takeover.',
+                            supervisorOverridden: false,
+                            source: 'exotel',
+                            isLive: true,
+                            isMock: false
                         };
+                        base = [newLive, ...liveCalls];
                     }
-                    return c;
-                }));
+                    return base.map(c => {
+                        if (c.id === sessionId) {
+                            return {
+                                ...c,
+                                urgency: 'CRITICAL',
+                                risk: 'HIGH',
+                                riskColor: 'rose',
+                                status: 'Supervisor Requested by Caller',
+                                snippet: payload.reason || 'Caller verbally requested human supervisor takeover.'
+                            };
+                        }
+                        return c;
+                    });
+                });
                 setAlerts(prev => [
                     {
                         id: `ALT-SUP-${Date.now().toString().slice(-3)}`,

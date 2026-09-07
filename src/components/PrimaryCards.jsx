@@ -83,7 +83,7 @@ export const PrimaryCards = ({ onCardClick, onToast }) => {
                     <div className="flex items-end justify-between">
                         <div>
                             <span className="text-3xl font-extrabold font-mono text-slate-900 leading-none">
-                                {activeCalls?.length || 6}
+                                {activeCalls?.length ?? 0}
                             </span>
                             <p className="text-xs font-semibold text-slate-500 mt-2 flex items-center gap-1">
                                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
